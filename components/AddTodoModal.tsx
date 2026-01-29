@@ -12,6 +12,14 @@ interface AddTodoModalProps {
   todoToEdit?: Todo; // Optional: if provided, we are in Edit mode
 }
 
+const getTodayDate = () => {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export const AddTodoModal: React.FC<AddTodoModalProps> = ({ isOpen, onClose, defaultDate, todoToEdit }) => {
   const { addTodo, updateTodo, categories } = useTodoStore();
   
@@ -21,6 +29,7 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({ isOpen, onClose, def
   const [priority, setPriority] = useState<Priority>(Priority.MEDIUM);
   const [categoryId, setCategoryId] = useState<string>('');
   const [date, setDate] = useState('');
+  const [time, setTime] = useState('');
 
   // Reset or Populate form when opening
   useEffect(() => {
@@ -32,13 +41,15 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({ isOpen, onClose, def
         setPriority(todoToEdit.priority);
         setCategoryId(todoToEdit.categoryId || '');
         setDate(todoToEdit.date);
+        setTime(todoToEdit.time || '');
       } else {
         // Create Mode
         setTitle('');
         setDescription('');
         setPriority(Priority.MEDIUM);
         setCategoryId('');
-        setDate(defaultDate || new Date().toISOString().split('T')[0]);
+        setDate(defaultDate || getTodayDate());
+        setTime('');
       }
     }
   }, [isOpen, todoToEdit, defaultDate]);
@@ -56,6 +67,7 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({ isOpen, onClose, def
         description,
         priority,
         date,
+        time: time || undefined,
         categoryId: categoryId || undefined,
       });
     } else {
@@ -65,6 +77,7 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({ isOpen, onClose, def
         description,
         priority,
         date,
+        time: time || undefined,
         categoryId: categoryId || undefined,
       });
     }
@@ -133,24 +146,39 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({ isOpen, onClose, def
                 className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm"
               />
             </div>
-             {/* Category */}
-            <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-                分类
-                </label>
-                <select
-                    value={categoryId}
-                    onChange={(e) => setCategoryId(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all appearance-none text-sm"
-                >
-                    <option value="">无分类</option>
-                    {categoryOptions.map(({ cat, depth }) => (
-                        <option key={cat.id} value={cat.id}>
-                            {'\u00A0'.repeat(depth * 3) + cat.name}
-                        </option>
-                    ))}
-                </select>
+             {/* Time */}
+             <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                时间 <span className="text-gray-400 font-normal normal-case">(可选)</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="time"
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm"
+                />
+              </div>
             </div>
+          </div>
+
+          {/* Category */}
+          <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+              分类
+              </label>
+              <select
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all appearance-none text-sm"
+              >
+                  <option value="">无分类</option>
+                  {categoryOptions.map(({ cat, depth }) => (
+                      <option key={cat.id} value={cat.id}>
+                          {'\u00A0'.repeat(depth * 3) + cat.name}
+                      </option>
+                  ))}
+              </select>
           </div>
 
           {/* Priority */}

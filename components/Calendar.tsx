@@ -37,13 +37,15 @@ export const Calendar: React.FC = () => {
 
   // Check if a day has todos
   const hasTodos = (date: Date) => {
-    const dateStr = date.toISOString().split('T')[0];
+    // FIX: Use local format instead of toISOString (which converts to UTC and causes off-by-one errors)
+    const dateStr = format(date, 'yyyy-MM-dd');
     return todos.some(t => t.date === dateStr && !t.completed);
   };
   
   // Check if a day has completed todos only
   const hasCompletedTodosOnly = (date: Date) => {
-    const dateStr = date.toISOString().split('T')[0];
+    // FIX: Use local format instead of toISOString
+    const dateStr = format(date, 'yyyy-MM-dd');
     const dayTodos = todos.filter(t => t.date === dateStr);
     return dayTodos.length > 0 && dayTodos.every(t => t.completed);
   };

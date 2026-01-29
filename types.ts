@@ -16,7 +16,9 @@ export interface Todo {
   description?: string;
   completed: boolean;
   date: string; // ISO Date string YYYY-MM-DD
+  time?: string; // HH:mm format (24h)
   createdAt: number;
+  updatedAt?: number;
   priority: Priority;
   categoryId?: string;
 }
@@ -24,3 +26,6 @@ export interface Todo {
 export type CalendarViewMode = 'month' | 'week';
 
 export type ViewMode = 'date' | 'category' | 'all';
+
+export type SortBy = 'date' | 'title' | 'createdAt' | 'updatedAt';
+export type SortDirection = 'asc' | 'desc';

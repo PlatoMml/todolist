@@ -1,16 +1,57 @@
 import React, { useMemo, useState } from 'react';
 import { useTodoStore } from '../store/useTodoStore';
 import { TodoItem } from './TodoItem';
-import { format, parseISO, isToday, isPast, isTomorrow } from 'date-fns';
+import { format, parseISO, isToday, isTomorrow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
-import { Plus, ListTodo, Sparkles, FolderOpen, Layers, Calendar as CalendarIcon } from 'lucide-react';
+import { 
+  Plus, 
+  ListTodo, 
+  FolderOpen, 
+  Layers, 
+  Calendar as CalendarIcon, 
+  ArrowUpDown, 
+  Check,
+  Clock,
+  CalendarDays,
+  Type,
+  History
+} from 'lucide-react';
 import { AddTodoModal } from './AddTodoModal';
 import { Button } from './Button';
-import { Category } from '../types';
+import { SortBy, SortDirection } from '../types';
 
+// --- Main TodoList Component ---
 export const TodoList: React.FC = () => {
-  const { todos, selectedDate, viewMode, selectedCategoryId, categories } = useTodoStore();
+  const { 
+    todos, 
+    selectedDate, 
+    viewMode, 
+    selectedCategoryId, 
+    categories,
+    sortBy,
+    sortDirection,
+    setSortBy,
+    setSortDirection
+  } = useTodoStore();
+  
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
+
+  // Close sort menu when clicking outside
+  React.useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+        const target = e.target as HTMLElement;
+        if (!target.closest('#sort-menu-container')) {
+            setIsSortMenuOpen(false);
+        }
+    };
+    if (isSortMenuOpen) {
+        document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isSortMenuOpen]);
 
   // Helper to get all descendant categories
   const getDescendantIds = (parentId: string): string[] => {
@@ -34,16 +75,42 @@ export const TodoList: React.FC = () => {
         result = todos;
     }
 
-    // Sort: Uncompleted first, then Date, then Priority, then Created
-    return result.sort((a, b) => {
+    // Sort Logic
+    return [...result].sort((a, b) => {
+        // 1. Completed items always at the bottom
         if (a.completed !== b.completed) return a.completed ? 1 : -1;
-        if (a.date !== b.date) return a.date.localeCompare(b.date);
-        
-        const pMap = { '高': 3, '中': 2, '低': 1 };
-        if (pMap[a.priority] !== pMap[b.priority]) return pMap[b.priority] - pMap[a.priority];
-        return b.createdAt - a.createdAt;
+
+        // 2. Standard Sort
+        let comparison = 0;
+        switch (sortBy) {
+            case 'title':
+                comparison = a.title.localeCompare(b.title, 'zh-CN');
+                break;
+            case 'date':
+                // Compare Date first
+                comparison = a.date.localeCompare(b.date);
+                // If Dates are same, compare Time
+                if (comparison === 0) {
+                    const timeA = a.time || ''; // treat undefined as earliest? or empty
+                    const timeB = b.time || '';
+                    comparison = timeA.localeCompare(timeB);
+                }
+                break;
+            case 'createdAt':
+                comparison = a.createdAt - b.createdAt;
+                break;
+            case 'updatedAt':
+                const aUpdated = a.updatedAt || a.createdAt;
+                const bUpdated = b.updatedAt || b.createdAt;
+                comparison = aUpdated - bUpdated;
+                break;
+            default:
+                comparison = 0;
+        }
+
+        return sortDirection === 'asc' ? comparison : -comparison;
     });
-  }, [todos, selectedDate, viewMode, selectedCategoryId, categories]);
+  }, [todos, selectedDate, viewMode, selectedCategoryId, categories, sortBy, sortDirection]);
 
   const progress = useMemo(() => {
     if (filteredTodos.length === 0) return 0;
@@ -71,6 +138,13 @@ export const TodoList: React.FC = () => {
       return <CalendarIcon className="text-primary-500" size={24} />;
   }, [viewMode]);
 
+  const sortOptions: { value: SortBy; label: string; icon: React.ReactNode }[] = [
+      { value: 'date', label: '待办日期', icon: <CalendarDays size={14} /> },
+      { value: 'title', label: '任务名称', icon: <Type size={14} /> },
+      { value: 'createdAt', label: '创建时间', icon: <Clock size={14} /> },
+      { value: 'updatedAt', label: '修改时间', icon: <History size={14} /> },
+  ];
+
   return (
     <div className="h-full flex flex-col bg-white overflow-hidden relative">
       {/* Header */}
@@ -87,10 +161,72 @@ export const TodoList: React.FC = () => {
                     </p>
                 </div>
             </div>
-            <Button onClick={() => setIsModalOpen(true)} className="rounded-lg px-4 py-2 flex items-center gap-2 shadow-sm">
-                <Plus size={18} />
-                <span className="text-sm">新建</span>
-            </Button>
+            
+            <div className="flex gap-2">
+                {/* Sort Button */}
+                <div className="relative" id="sort-menu-container">
+                    <Button 
+                        variant="secondary" 
+                        className="px-3 h-9"
+                        onClick={() => setIsSortMenuOpen(!isSortMenuOpen)}
+                        title="排序"
+                    >
+                        <ArrowUpDown size={16} className="text-gray-500" />
+                    </Button>
+
+                    {/* Sort Dropdown */}
+                    {isSortMenuOpen && (
+                        <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                            <div className="p-1">
+                                <div className="text-xs font-semibold text-gray-400 px-3 py-2">排序依据</div>
+                                {sortOptions.map(option => (
+                                    <button
+                                        key={option.value}
+                                        onClick={() => { setSortBy(option.value); setIsSortMenuOpen(false); }}
+                                        className={`w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-colors ${
+                                            sortBy === option.value ? 'bg-primary-50 text-primary-700' : 'text-gray-700 hover:bg-gray-50'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            {option.icon}
+                                            <span>{option.label}</span>
+                                        </div>
+                                        {sortBy === option.value && <Check size={14} />}
+                                    </button>
+                                ))}
+                                
+                                <div className="h-px bg-gray-100 my-1"></div>
+                                
+                                <div className="text-xs font-semibold text-gray-400 px-3 py-2">顺序</div>
+                                <div className="flex bg-gray-50 p-1 rounded-lg mx-2 mb-2">
+                                    <button
+                                        onClick={() => setSortDirection('asc')}
+                                        className={`flex-1 text-xs py-1.5 rounded-md transition-all font-medium ${
+                                            sortDirection === 'asc' ? 'bg-white shadow-sm text-primary-700' : 'text-gray-500 hover:text-gray-700'
+                                        }`}
+                                    >
+                                        升序
+                                    </button>
+                                    <button
+                                        onClick={() => setSortDirection('desc')}
+                                        className={`flex-1 text-xs py-1.5 rounded-md transition-all font-medium ${
+                                            sortDirection === 'desc' ? 'bg-white shadow-sm text-primary-700' : 'text-gray-500 hover:text-gray-700'
+                                        }`}
+                                    >
+                                        降序
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <Button onClick={() => setIsModalOpen(true)} className="rounded-lg px-4 py-2 flex items-center gap-2 shadow-sm h-9">
+                    <Plus size={18} />
+                    <span className="text-sm hidden sm:inline">新建</span>
+                    <span className="text-sm sm:hidden">新建</span>
+                </Button>
+            </div>
         </div>
         
         {filteredTodos.length > 0 && (
@@ -106,9 +242,9 @@ export const TodoList: React.FC = () => {
       {/* List */}
       <div className="flex-1 overflow-y-auto p-4 space-y-2 scroll-smooth bg-white">
         {filteredTodos.length > 0 ? (
-          filteredTodos.map(todo => (
+            filteredTodos.map(todo => (
             <TodoItem key={todo.id} todo={todo} />
-          ))
+            ))
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-gray-400 pb-20">
             <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
@@ -125,7 +261,7 @@ export const TodoList: React.FC = () => {
       <AddTodoModal 
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)} 
-        defaultDate={selectedDate || new Date().toISOString().split('T')[0]}
+        defaultDate={selectedDate || format(new Date(), 'yyyy-MM-dd')}
       />
     </div>
   );

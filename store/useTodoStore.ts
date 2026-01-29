@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { Todo, Priority, Category, ViewMode } from '../types';
+import { Todo, Priority, Category, ViewMode, SortBy, SortDirection } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
 interface TodoState {
@@ -10,9 +10,12 @@ interface TodoState {
   
   viewMode: ViewMode;
   selectedCategoryId: string | null;
+  
+  sortBy: SortBy;
+  sortDirection: SortDirection;
 
   // Actions
-  addTodo: (todo: Omit<Todo, 'id' | 'createdAt' | 'completed'>) => void;
+  addTodo: (todo: Omit<Todo, 'id' | 'createdAt' | 'updatedAt' | 'completed'>) => void;
   toggleTodo: (id: string) => void;
   deleteTodo: (id: string) => void;
   updateTodo: (id: string, updates: Partial<Todo>) => void;
@@ -20,14 +23,21 @@ interface TodoState {
   setSelectedDate: (date: string | null) => void;
   setSelectedCategory: (id: string | null) => void;
   setViewMode: (mode: ViewMode) => void;
+  setSortBy: (sortBy: SortBy) => void;
+  setSortDirection: (direction: SortDirection) => void;
   
   // Category Actions
   addCategory: (name: string, parentId: string | null) => void;
   deleteCategory: (id: string) => void;
 }
 
-// Helper to format date consistent with how we store it
-const formatDate = (date: Date) => date.toISOString().split('T')[0];
+// Helper to format date consistent with how we store it (YYYY-MM-DD in LOCAL TIME)
+const formatDate = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 // Helper to find all descendant IDs for deletion
 const getDescendantIds = (categories: Category[], parentId: string): string[] => {
@@ -50,6 +60,8 @@ export const useTodoStore = create<TodoState>()(
       selectedDate: formatDate(new Date()),
       viewMode: 'date',
       selectedCategoryId: null,
+      sortBy: 'date',
+      sortDirection: 'asc',
 
       addTodo: (todoData) => set((state) => ({
         todos: [
@@ -59,13 +71,14 @@ export const useTodoStore = create<TodoState>()(
             id: uuidv4(),
             completed: false,
             createdAt: Date.now(),
+            updatedAt: Date.now(),
           },
         ],
       })),
 
       toggleTodo: (id) => set((state) => ({
         todos: state.todos.map((t) =>
-          t.id === id ? { ...t, completed: !t.completed } : t
+          t.id === id ? { ...t, completed: !t.completed, updatedAt: Date.now() } : t
         ),
       })),
 
@@ -75,7 +88,7 @@ export const useTodoStore = create<TodoState>()(
 
       updateTodo: (id, updates) => set((state) => ({
         todos: state.todos.map((t) =>
-          t.id === id ? { ...t, ...updates } : t
+          t.id === id ? { ...t, ...updates, updatedAt: Date.now() } : t
         ),
       })),
 
@@ -88,6 +101,9 @@ export const useTodoStore = create<TodoState>()(
           if (mode === 'date') return { viewMode: 'date', selectedDate: formatDate(new Date()), selectedCategoryId: null };
           return { viewMode: mode };
       }),
+      
+      setSortBy: (sortBy) => set({ sortBy }),
+      setSortDirection: (sortDirection) => set({ sortDirection }),
 
       addCategory: (name, parentId) => set((state) => ({
         categories: [
