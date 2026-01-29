@@ -26,15 +26,15 @@ const App: React.FC = () => {
                 <h1 className="text-base font-bold text-gray-900 tracking-tight leading-none">待办事项</h1>
             </div>
         </div>
-        {/* Category Manager button removed */}
       </header>
 
-      {/* Main Content Area - 3 Panes Layout */}
-      <main className="flex-1 flex overflow-hidden">
+      {/* Main Content Area - Responsive Layout */}
+      <main className="flex-1 flex flex-col md:flex-row overflow-hidden">
         
         {/* Pane 1: Sidebar (Navigation) */}
+        {/* Mobile: Fixed Drawer. Desktop (lg+): Relative Column */}
         <div className={`
-            fixed inset-y-0 left-0 z-30 w-64 bg-gray-50 border-r border-gray-200 transform transition-transform duration-200 lg:relative lg:translate-x-0
+            fixed inset-y-0 left-0 z-40 w-64 bg-gray-50 border-r border-gray-200 transform transition-transform duration-200 lg:relative lg:translate-x-0
             ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         `}>
             <Sidebar className="h-full" onCloseMobile={() => setIsMobileSidebarOpen(false)} />
@@ -43,18 +43,19 @@ const App: React.FC = () => {
         {/* Mobile Overlay */}
         {isMobileSidebarOpen && (
             <div 
-                className="fixed inset-0 bg-black/20 backdrop-blur-sm z-20 lg:hidden"
+                className="fixed inset-0 bg-black/20 backdrop-blur-sm z-30 lg:hidden"
                 onClick={() => setIsMobileSidebarOpen(false)}
             />
         )}
 
         {/* Pane 2: Calendar (Middle Column) */}
-        <div className="w-[380px] xl:w-[420px] bg-white border-r border-gray-200 flex flex-col flex-shrink-0 z-10 relative hidden md:flex">
+        {/* Mobile (<md): Stacked on top, AUTO height to fit content. Desktop (>=md): Side column. */}
+        <div className="w-full md:w-[340px] xl:w-[380px] h-auto bg-white border-b md:border-b-0 md:border-r border-gray-200 flex flex-col flex-shrink-0 z-10 relative">
              <Calendar />
         </div>
 
         {/* Pane 3: Todo List (Main Content) */}
-        <div className="flex-1 bg-white flex flex-col min-w-0 z-0 relative">
+        <div className="flex-1 bg-white flex flex-col min-w-0 z-0 relative h-full overflow-hidden">
             <TodoList />
         </div>
       </main>

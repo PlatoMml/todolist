@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
+import { X, ChevronDown, Folder, Check, ChevronRight } from 'lucide-react';
 import { Priority, Category, Todo } from '../types';
 import { useTodoStore } from '../store/useTodoStore';
 import { Button } from './Button';
@@ -9,6 +9,7 @@ interface AddTodoModalProps {
   isOpen: boolean;
   onClose: () => void;
   defaultDate?: string;
+  defaultCategoryId?: string;
   todoToEdit?: Todo; // Optional: if provided, we are in Edit mode
 }
 
@@ -20,7 +21,13 @@ const getTodayDate = () => {
   return `${year}-${month}-${day}`;
 };
 
-export const AddTodoModal: React.FC<AddTodoModalProps> = ({ isOpen, onClose, defaultDate, todoToEdit }) => {
+export const AddTodoModal: React.FC<AddTodoModalProps> = ({ 
+  isOpen, 
+  onClose, 
+  defaultDate, 
+  defaultCategoryId, 
+  todoToEdit 
+}) => {
   const { addTodo, updateTodo, categories } = useTodoStore();
   
   // State
@@ -30,6 +37,26 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({ isOpen, onClose, def
   const [categoryId, setCategoryId] = useState<string>('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
+
+  // Custom Dropdown State
+  const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsCategoryDropdownOpen(false);
+      }
+    };
+
+    if (isCategoryDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isCategoryDropdownOpen]);
 
   // Reset or Populate form when opening
   useEffect(() => {
@@ -47,12 +74,13 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({ isOpen, onClose, def
         setTitle('');
         setDescription('');
         setPriority(Priority.MEDIUM);
-        setCategoryId('');
+        setCategoryId(defaultCategoryId || '');
         setDate(defaultDate || getTodayDate());
         setTime('');
       }
+      setIsCategoryDropdownOpen(false);
     }
-  }, [isOpen, todoToEdit, defaultDate]);
+  }, [isOpen, todoToEdit, defaultDate, defaultCategoryId]);
 
   if (!isOpen) return null;
 
@@ -87,7 +115,7 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({ isOpen, onClose, def
 
   // Flatten categories with depth for display
   const getFlattenedCategories = (parentId: string | null = null, depth = 0): { cat: Category, depth: number }[] => {
-    const children = categories.filter(c => c.parentId === parentId);
+    const children = categories.filter(c => c.parentId === parentId && !c.deletedAt);
     let result: { cat: Category, depth: number }[] = [];
     children.forEach(child => {
       result.push({ cat: child, depth });
@@ -98,14 +126,18 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({ isOpen, onClose, def
 
   const categoryOptions = getFlattenedCategories();
   const isEditMode = !!todoToEdit;
+  
+  const selectedCategoryName = categoryId 
+    ? categories.find(c => c.id === categoryId)?.name 
+    : '无分类';
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
       <div 
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50/50">
+        <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50/50 shrink-0">
           <h2 className="text-lg font-bold text-gray-800">
             {isEditMode ? '编辑任务' : '添加任务'}
           </h2>
@@ -117,7 +149,7 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({ isOpen, onClose, def
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar">
           {/* Title */}
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
@@ -162,23 +194,80 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({ isOpen, onClose, def
             </div>
           </div>
 
-          {/* Category */}
-          <div>
+          {/* Custom Category Select */}
+          <div className="relative" ref={dropdownRef}>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
               分类
               </label>
-              <select
-                  value={categoryId}
-                  onChange={(e) => setCategoryId(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all appearance-none text-sm"
+              
+              <div 
+                onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
+                className={`
+                    w-full px-3 py-2 bg-white border rounded-lg flex items-center justify-between cursor-pointer transition-all
+                    ${isCategoryDropdownOpen ? 'border-primary-500 ring-2 ring-primary-500/20' : 'border-gray-200 hover:border-gray-300'}
+                `}
               >
-                  <option value="">无分类</option>
-                  {categoryOptions.map(({ cat, depth }) => (
-                      <option key={cat.id} value={cat.id}>
-                          {'\u00A0'.repeat(depth * 3) + cat.name}
-                      </option>
-                  ))}
-              </select>
+                  <div className="flex items-center gap-2 text-sm text-gray-700">
+                      {categoryId ? (
+                          <Folder size={16} className="text-primary-500 fill-primary-50" />
+                      ) : (
+                          <span className="w-4 h-4"></span>
+                      )}
+                      <span className={categoryId ? 'text-gray-900' : 'text-gray-500'}>
+                        {selectedCategoryName}
+                      </span>
+                  </div>
+                  <ChevronDown size={16} className={`text-gray-400 transition-transform ${isCategoryDropdownOpen ? 'rotate-180' : ''}`} />
+              </div>
+
+              {isCategoryDropdownOpen && (
+                  <div className="absolute top-full left-0 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-50 max-h-60 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-100">
+                      {/* No Category Option */}
+                      <div 
+                          onClick={() => { setCategoryId(''); setIsCategoryDropdownOpen(false); }}
+                          className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer"
+                      >
+                          <div className="w-4 flex justify-center">
+                             {!categoryId && <Check size={14} className="text-primary-600" />}
+                          </div>
+                          <span>无分类</span>
+                      </div>
+                      
+                      {/* Divider */}
+                      <div className="h-px bg-gray-100 my-1 mx-2"></div>
+
+                      {/* Category List */}
+                      {categoryOptions.length === 0 ? (
+                          <div className="px-3 py-4 text-center text-xs text-gray-400">
+                              暂无分类
+                          </div>
+                      ) : (
+                        categoryOptions.map(({ cat, depth }) => (
+                            <div
+                                key={cat.id}
+                                onClick={() => { setCategoryId(cat.id); setIsCategoryDropdownOpen(false); }}
+                                className={`
+                                    flex items-center gap-2 px-3 py-2 text-sm cursor-pointer transition-colors
+                                    ${categoryId === cat.id ? 'bg-primary-50 text-primary-700' : 'text-gray-700 hover:bg-gray-50'}
+                                `}
+                                style={{ paddingLeft: `${depth * 20 + 12}px` }}
+                            >
+                                {/* Hierarchy Icon Logic */}
+                                <div className="flex items-center justify-center w-4 shrink-0">
+                                    <Folder 
+                                        size={14} 
+                                        className={categoryId === cat.id ? 'text-primary-600 fill-primary-100' : 'text-gray-400'} 
+                                    />
+                                </div>
+                                
+                                <span className="truncate flex-1">{cat.name}</span>
+                                
+                                {categoryId === cat.id && <Check size={14} className="text-primary-600 shrink-0" />}
+                            </div>
+                        ))
+                      )}
+                  </div>
+              )}
           </div>
 
           {/* Priority */}
@@ -217,16 +306,16 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({ isOpen, onClose, def
               className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all resize-none text-sm"
             />
           </div>
+        </div>
 
-          <div className="pt-2 flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={onClose}>
-              取消
-            </Button>
-            <Button type="submit" disabled={!title.trim()}>
-              {isEditMode ? '保存修改' : '确认添加'}
-            </Button>
-          </div>
-        </form>
+        <div className="p-4 border-t border-gray-100 bg-gray-50/50 flex justify-end gap-2 shrink-0">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            取消
+          </Button>
+          <Button type="button" disabled={!title.trim()} onClick={handleSubmit}>
+            {isEditMode ? '保存修改' : '确认添加'}
+          </Button>
+        </div>
       </div>
     </div>,
     document.body

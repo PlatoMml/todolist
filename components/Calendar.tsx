@@ -66,13 +66,13 @@ export const Calendar: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-white">
       {/* Calendar Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-100 shrink-0 h-16">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 shrink-0 h-12">
         <div className="flex items-center gap-2 text-gray-800">
             <div className="flex gap-1">
               <select 
                 value={getYear(currentDate)} 
                 onChange={handleYearChange}
-                className="bg-transparent font-bold text-lg focus:outline-none cursor-pointer hover:bg-gray-50 rounded px-1"
+                className="bg-transparent font-bold text-base focus:outline-none cursor-pointer hover:bg-gray-50 rounded px-1"
               >
                 {years.map(year => (
                   <option key={year} value={year}>{year}年</option>
@@ -81,7 +81,7 @@ export const Calendar: React.FC = () => {
               <select 
                 value={getMonth(currentDate)} 
                 onChange={handleMonthChange}
-                className="bg-transparent font-bold text-lg focus:outline-none cursor-pointer hover:bg-gray-50 rounded px-1"
+                className="bg-transparent font-bold text-base focus:outline-none cursor-pointer hover:bg-gray-50 rounded px-1"
               >
                 {months.map(month => (
                   <option key={month} value={month}>{month + 1}月</option>
@@ -92,30 +92,30 @@ export const Calendar: React.FC = () => {
         <div className="flex gap-1">
           <button 
             onClick={prevMonth}
-            className="p-1.5 hover:bg-gray-100 rounded text-gray-500 transition-colors"
+            className="p-1 hover:bg-gray-100 rounded text-gray-500 transition-colors"
           >
-            <ChevronLeft size={20} />
+            <ChevronLeft size={18} />
           </button>
           <button 
             onClick={nextMonth}
-            className="p-1.5 hover:bg-gray-100 rounded text-gray-500 transition-colors"
+            className="p-1 hover:bg-gray-100 rounded text-gray-500 transition-colors"
           >
-            <ChevronRight size={20} />
+            <ChevronRight size={18} />
           </button>
         </div>
       </div>
 
       {/* Weekday Header */}
-      <div className="grid grid-cols-7 border-b border-gray-100 shrink-0">
+      <div className="grid grid-cols-7 border-b border-gray-100 shrink-0 mb-1">
         {weekDays.map(day => (
-          <div key={day} className="text-center text-xs font-medium text-gray-400 py-2">
+          <div key={day} className="text-center text-xs font-medium text-gray-400 py-1.5">
             {day}
           </div>
         ))}
       </div>
 
       {/* Days Grid */}
-      <div className="flex-1 p-2 overflow-y-auto custom-scrollbar">
+      <div className="flex-1 px-2 pb-2 overflow-y-auto custom-scrollbar">
         <div className="grid grid-cols-7 gap-1">
             {days.map((day, idx) => {
             const dateStr = format(day, 'yyyy-MM-dd');
@@ -130,13 +130,14 @@ export const Calendar: React.FC = () => {
                 key={day.toISOString()}
                 onClick={() => setSelectedDate(dateStr)}
                 className={`
-                    relative flex flex-col items-center justify-center rounded-lg p-1 transition-all duration-200 aspect-square w-full
+                    relative flex flex-col items-center justify-center rounded-lg p-1 transition-all duration-200 w-full
+                    h-9 md:h-auto md:aspect-square
                     ${!isCurrentMonth ? 'text-gray-300 opacity-50' : 'text-gray-700'}
                     ${isSelected ? 'bg-primary-600 text-white shadow-md' : 'hover:bg-gray-50'}
                     ${isDayToday && !isSelected ? 'text-primary-600 font-bold bg-primary-50' : ''}
                 `}
                 >
-                <span className={`text-sm ${isSelected || isDayToday ? 'font-semibold' : ''}`}>
+                <span className={`text-sm leading-none ${isSelected || isDayToday ? 'font-semibold' : ''}`}>
                     {format(day, 'd')}
                 </span>
                 
@@ -155,7 +156,7 @@ export const Calendar: React.FC = () => {
       </div>
       
       {/* Legend */}
-      <div className="p-3 border-t border-gray-100 flex items-center justify-center gap-4 text-xs text-gray-400 shrink-0">
+      <div className="py-2 px-3 border-t border-gray-100 flex items-center justify-center gap-4 text-xs text-gray-400 shrink-0">
         <div className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-primary-500"></span>
             <span>待办</span>

@@ -8,6 +8,7 @@ export interface Category {
   id: string;
   name: string;
   parentId: string | null;
+  deletedAt?: number; // timestamp if in trash
 }
 
 export interface Todo {
@@ -21,11 +22,12 @@ export interface Todo {
   updatedAt?: number;
   priority: Priority;
   categoryId?: string;
+  deletedAt?: number; // timestamp if in trash
 }
 
 export type CalendarViewMode = 'month' | 'week';
 
-export type ViewMode = 'date' | 'category' | 'all';
+export type ViewMode = 'date' | 'category' | 'all' | 'trash';
 
 export type SortBy = 'date' | 'title' | 'createdAt' | 'updatedAt';
 export type SortDirection = 'asc' | 'desc';
