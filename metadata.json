@@ -1,0 +1,5 @@
+{
+  "name": "待办事项管理网页",
+  "description": "一个极简、美观的待办事项应用，集成了日历视图。支持本地数据持久化和流畅的响应式设计。",
+  "requestFramePermissions": []
+}
