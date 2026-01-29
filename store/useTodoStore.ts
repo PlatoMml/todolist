@@ -116,7 +116,7 @@ export const useTodoStore = create<TodoState>()(
       }),
     }),
     {
-      name: 'zenplan-storage',
+      name: 'todo-storage',
       storage: createJSONStorage(() => localStorage),
     }
   )
