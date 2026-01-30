@@ -1,15 +1,17 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { Todo, Priority, Category, ViewMode, SortBy, SortDirection } from '../types';
+import { Todo, Priority, Category, ViewMode, SortBy, SortDirection, Tag } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
 interface TodoState {
   todos: Todo[];
   categories: Category[];
+  tags: Tag[]; // Global tag list
   selectedDate: string | null; // ISO Date string YYYY-MM-DD
   
   viewMode: ViewMode;
   selectedCategoryId: string | null;
+  upcomingDays: number; // For the custom date range view
   
   sortBy: SortBy;
   sortDirection: SortDirection;
@@ -27,6 +29,7 @@ interface TodoState {
   setSelectedDate: (date: string | null) => void;
   setSelectedCategory: (id: string | null) => void;
   setViewMode: (mode: ViewMode) => void;
+  setUpcomingDays: (days: number) => void;
   setSortBy: (sortBy: SortBy) => void;
   setSortDirection: (direction: SortDirection) => void;
   
@@ -37,6 +40,9 @@ interface TodoState {
   moveCategoryToTrash: (id: string) => void;
   restoreCategory: (id: string) => void;
   permanentlyDeleteCategory: (id: string) => void;
+
+  // Tag Actions
+  addTag: (name: string) => Tag; // Returns the new or existing tag
 }
 
 // Helper to format date consistent with how we store it (YYYY-MM-DD in LOCAL TIME)
@@ -57,6 +63,21 @@ const getDescendantIds = (categories: Category[], parentId: string): string[] =>
   return ids;
 };
 
+// Predefined colors for tags
+const TAG_COLORS = [
+  '#ef4444', // red
+  '#f97316', // orange
+  '#f59e0b', // amber
+  '#84cc16', // lime
+  '#10b981', // emerald
+  '#06b6d4', // cyan
+  '#3b82f6', // blue
+  '#6366f1', // indigo
+  '#8b5cf6', // violet
+  '#d946ef', // fuchsia
+  '#ec4899', // pink
+];
+
 export const useTodoStore = create<TodoState>()(
   persist(
     (set, get) => ({
@@ -65,9 +86,11 @@ export const useTodoStore = create<TodoState>()(
         { id: 'default-1', name: '工作', parentId: null },
         { id: 'default-2', name: '生活', parentId: null },
       ],
+      tags: [],
       selectedDate: formatDate(new Date()),
       viewMode: 'date',
       selectedCategoryId: null,
+      upcomingDays: 7, // Default to 7 days
       sortBy: 'date',
       sortDirection: 'asc',
 
@@ -80,6 +103,7 @@ export const useTodoStore = create<TodoState>()(
             completed: false,
             createdAt: Date.now(),
             updatedAt: Date.now(),
+            tagIds: todoData.tagIds || [],
           },
         ],
       })),
@@ -124,8 +148,11 @@ export const useTodoStore = create<TodoState>()(
           if (mode === 'all') return { viewMode: 'all', selectedDate: null, selectedCategoryId: null };
           if (mode === 'date') return { viewMode: 'date', selectedDate: formatDate(new Date()), selectedCategoryId: null };
           if (mode === 'trash') return { viewMode: 'trash', selectedDate: null, selectedCategoryId: null };
+          if (mode === 'upcoming') return { viewMode: 'upcoming', selectedDate: null, selectedCategoryId: null };
           return { viewMode: mode };
       }),
+      
+      setUpcomingDays: (days) => set({ upcomingDays: days }),
       
       setSortBy: (sortBy) => set({ sortBy }),
       setSortDirection: (sortDirection) => set({ sortDirection }),
@@ -167,14 +194,10 @@ export const useTodoStore = create<TodoState>()(
       }),
 
       moveCategoryToTrash: (id) => set((state) => {
-        // We only soft-delete the specific category. 
-        // The UI logic will handle hiding its children based on hierarchy.
-        // This allows for perfect structural restoration.
         const newCategories = state.categories.map(c => 
           c.id === id ? { ...c, deletedAt: Date.now() } : c
         );
 
-        // If currently viewing this category, switch to All
         const shouldResetView = state.selectedCategoryId === id;
 
         return {
@@ -194,7 +217,6 @@ export const useTodoStore = create<TodoState>()(
         const idsToDelete = [id, ...getDescendantIds(state.categories, id)];
         const newCategories = state.categories.filter(c => !idsToDelete.includes(c.id));
         
-        // Also permanently delete todos in these categories
         const newTodos = state.todos.filter(t => 
           !(t.categoryId && idsToDelete.includes(t.categoryId))
         );
@@ -204,6 +226,26 @@ export const useTodoStore = create<TodoState>()(
           todos: newTodos,
         };
       }),
+
+      // --- Tag Logic ---
+      addTag: (name) => {
+        const state = get();
+        // Check if tag exists (case insensitive)
+        const existingTag = state.tags.find(t => t.name.toLowerCase() === name.toLowerCase());
+        
+        if (existingTag) {
+            return existingTag;
+        }
+
+        const newTag: Tag = {
+            id: uuidv4(),
+            name: name,
+            color: TAG_COLORS[state.tags.length % TAG_COLORS.length]
+        };
+
+        set({ tags: [...state.tags, newTag] });
+        return newTag;
+      }
     }),
     {
       name: 'todo-storage',

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ChevronDown, Folder, Check, ChevronRight } from 'lucide-react';
-import { Priority, Category, Todo } from '../types';
+import { X, ChevronDown, Folder, Check, Tag as TagIcon, Plus } from 'lucide-react';
+import { Priority, Category, Todo, Tag } from '../types';
 import { useTodoStore } from '../store/useTodoStore';
 import { Button } from './Button';
 
@@ -28,7 +28,7 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
   defaultCategoryId, 
   todoToEdit 
 }) => {
-  const { addTodo, updateTodo, categories } = useTodoStore();
+  const { addTodo, updateTodo, categories, tags, addTag } = useTodoStore();
   
   // State
   const [title, setTitle] = useState('');
@@ -37,26 +37,35 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
   const [categoryId, setCategoryId] = useState<string>('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
+  
+  // Tag State
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+  const [isTagDropdownOpen, setIsTagDropdownOpen] = useState(false);
 
   // Custom Dropdown State
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const categoryDropdownRef = useRef<HTMLDivElement>(null);
+  const tagContainerRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown when clicking outside
+  // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(event.target as Node)) {
         setIsCategoryDropdownOpen(false);
+      }
+      if (tagContainerRef.current && !tagContainerRef.current.contains(event.target as Node)) {
+        setIsTagDropdownOpen(false);
       }
     };
 
-    if (isCategoryDropdownOpen) {
+    if (isCategoryDropdownOpen || isTagDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isCategoryDropdownOpen]);
+  }, [isCategoryDropdownOpen, isTagDropdownOpen]);
 
   // Reset or Populate form when opening
   useEffect(() => {
@@ -69,6 +78,7 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
         setCategoryId(todoToEdit.categoryId || '');
         setDate(todoToEdit.date);
         setTime(todoToEdit.time || '');
+        setSelectedTagIds(todoToEdit.tagIds || []);
       } else {
         // Create Mode
         setTitle('');
@@ -77,8 +87,11 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
         setCategoryId(defaultCategoryId || '');
         setDate(defaultDate || getTodayDate());
         setTime('');
+        setSelectedTagIds([]);
       }
       setIsCategoryDropdownOpen(false);
+      setIsTagDropdownOpen(false);
+      setTagInput('');
     }
   }, [isOpen, todoToEdit, defaultDate, defaultCategoryId]);
 
@@ -87,6 +100,9 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
+    
+    // Validate date (must not be empty)
+    const finalDate = date || getTodayDate();
 
     if (todoToEdit) {
       // Update existing
@@ -94,9 +110,10 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
         title,
         description,
         priority,
-        date,
+        date: finalDate,
         time: time || undefined,
         categoryId: categoryId || undefined,
+        tagIds: selectedTagIds,
       });
     } else {
       // Create new
@@ -104,14 +121,45 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
         title,
         description,
         priority,
-        date,
+        date: finalDate,
         time: time || undefined,
         categoryId: categoryId || undefined,
+        tagIds: selectedTagIds,
       });
     }
 
     onClose();
   };
+
+  // Tag Handlers
+  const handleTagInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      setTagInput(e.target.value);
+      setIsTagDropdownOpen(true);
+  };
+
+  const handleAddTag = (tag: Tag) => {
+      if (!selectedTagIds.includes(tag.id)) {
+          setSelectedTagIds([...selectedTagIds, tag.id]);
+      }
+      setTagInput('');
+      setIsTagDropdownOpen(false);
+  };
+
+  const handleCreateTag = () => {
+      if (!tagInput.trim()) return;
+      const newTag = addTag(tagInput.trim());
+      handleAddTag(newTag);
+  };
+
+  const handleRemoveTag = (idToRemove: string) => {
+      setSelectedTagIds(selectedTagIds.filter(id => id !== idToRemove));
+  };
+
+  const filteredTags = tags.filter(t => 
+      t.name.toLowerCase().includes(tagInput.toLowerCase()) && 
+      !selectedTagIds.includes(t.id)
+  );
+
 
   // Flatten categories with depth for display
   const getFlattenedCategories = (parentId: string | null = null, depth = 0): { cat: Category, depth: number }[] => {
@@ -176,6 +224,7 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
                 className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm"
+                required
               />
             </div>
              {/* Time */}
@@ -195,7 +244,7 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
           </div>
 
           {/* Custom Category Select */}
-          <div className="relative" ref={dropdownRef}>
+          <div className="relative" ref={categoryDropdownRef}>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
               分类
               </label>
@@ -268,6 +317,86 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
                       )}
                   </div>
               )}
+          </div>
+          
+          {/* Tags Input */}
+          <div className="relative" ref={tagContainerRef}>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                标签
+              </label>
+              
+              <div className="flex flex-wrap gap-2 mb-2">
+                  {selectedTagIds.map(tagId => {
+                      const tag = tags.find(t => t.id === tagId);
+                      if (!tag) return null;
+                      return (
+                          <span 
+                            key={tag.id} 
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-white shadow-sm"
+                            style={{ backgroundColor: tag.color }}
+                          >
+                              {tag.name}
+                              <button 
+                                type="button" 
+                                onClick={() => handleRemoveTag(tag.id)}
+                                className="hover:bg-black/20 rounded-full p-0.5"
+                              >
+                                  <X size={10} />
+                              </button>
+                          </span>
+                      );
+                  })}
+              </div>
+
+              <div className="relative">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                      <TagIcon size={14} />
+                  </div>
+                  <input
+                      type="text"
+                      value={tagInput}
+                      onChange={handleTagInputChange}
+                      onFocus={() => setIsTagDropdownOpen(true)}
+                      onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleCreateTag();
+                          }
+                      }}
+                      placeholder="添加标签 (输入并回车创建)"
+                      className="w-full pl-9 pr-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm"
+                  />
+                  
+                  {isTagDropdownOpen && tagInput && (
+                      <div className="absolute top-full left-0 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-50 max-h-48 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-100">
+                          {filteredTags.length > 0 && (
+                             <div className="p-1">
+                                {filteredTags.map(tag => (
+                                    <button
+                                        key={tag.id}
+                                        type="button"
+                                        onClick={() => handleAddTag(tag)}
+                                        className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 rounded-md"
+                                    >
+                                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: tag.color }}></span>
+                                        {tag.name}
+                                    </button>
+                                ))}
+                                <div className="h-px bg-gray-100 my-1 mx-2"></div>
+                             </div>
+                          )}
+                          
+                          <button
+                            type="button"
+                            onClick={handleCreateTag}
+                            className="w-full text-left px-3 py-2 text-sm text-primary-600 hover:bg-primary-50 flex items-center gap-2 font-medium"
+                          >
+                             <Plus size={14} />
+                             创建标签 "{tagInput}"
+                          </button>
+                      </div>
+                  )}
+              </div>
           </div>
 
           {/* Priority */}

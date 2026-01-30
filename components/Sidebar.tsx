@@ -14,11 +14,25 @@ import {
   GripVertical,
   Settings,
   Check,
-  Folder
+  Folder,
+  Tag as TagIcon,
+  Filter,
+  Clock,
+  CalendarRange
 } from 'lucide-react';
 import { useTodoStore } from '../store/useTodoStore';
 import { Category, Todo } from '../types';
 import { Button } from './Button';
+import { format, parseISO, isToday, isTomorrow, addDays, isValid } from 'date-fns';
+import { zhCN } from 'date-fns/locale';
+
+// --- Helper to find category ID from touch point ---
+const getCategoryIdFromPoint = (x: number, y: number): string | null => {
+    const element = document.elementFromPoint(x, y);
+    if (!element) return null;
+    const categoryRow = element.closest('[data-category-id]');
+    return categoryRow ? categoryRow.getAttribute('data-category-id') : null;
+};
 
 // --- Recursive Category Item Component ---
 const CategoryNavItem: React.FC<{ 
@@ -32,13 +46,29 @@ const CategoryNavItem: React.FC<{
   onMoveCategory: (dragId: string, targetId: string) => void;
   todosCount: number;
   isReordering: boolean;
-}> = ({ category, allCategories, level, isActive, onSelect, onAddSub, onDelete, onMoveCategory, todosCount, isReordering }) => {
+  dragOverId: string | null;            // Shared drag state
+  setDragOverId: (id: string | null) => void; // Shared drag setter
+}> = ({ 
+    category, 
+    allCategories, 
+    level, 
+    isActive, 
+    onSelect, 
+    onAddSub, 
+    onDelete, 
+    onMoveCategory, 
+    todosCount, 
+    isReordering,
+    dragOverId,
+    setDragOverId
+}) => {
   // Only show children that are NOT deleted
   const children = allCategories.filter(c => c.parentId === category.id && !c.deletedAt);
   const [isExpanded, setIsExpanded] = useState(true);
-  const [isDragOver, setIsDragOver] = useState(false);
+  
+  const isDragOver = dragOverId === category.id;
 
-  // Drag Handlers
+  // --- Desktop Drag Handlers ---
   const handleDragStart = (e: React.DragEvent) => {
       e.dataTransfer.setData('application/x-category-id', category.id);
       e.dataTransfer.effectAllowed = 'move';
@@ -46,23 +76,28 @@ const CategoryNavItem: React.FC<{
 
   const handleDragOver = (e: React.DragEvent) => {
       if (!isReordering) return;
-      e.preventDefault(); // Necessary to allow dropping
+      e.preventDefault();
       e.stopPropagation();
       e.dataTransfer.dropEffect = 'move';
-      setIsDragOver(true);
+      if (dragOverId !== category.id) {
+          setDragOverId(category.id);
+      }
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      setIsDragOver(false);
+      // Only clear if we are leaving THIS element (not entering a child)
+      // But simplifying: we rely on the next DragOver to set the new ID.
+      // Or we can check relatedTarget. For simplicity, we don't clear here strictly
+      // to avoid flickering, relying on the container or other items to capture focus.
   };
 
   const handleDrop = (e: React.DragEvent) => {
       if (!isReordering) return;
       e.preventDefault();
       e.stopPropagation();
-      setIsDragOver(false);
+      setDragOverId(null);
       
       const draggedId = e.dataTransfer.getData('application/x-category-id');
       if (draggedId && draggedId !== category.id) {
@@ -70,14 +105,56 @@ const CategoryNavItem: React.FC<{
       }
   };
 
+  // --- Mobile Touch Handlers ---
+  const handleTouchStart = (e: React.TouchEvent) => {
+      if (!isReordering) return;
+      // We don't prevent default here to allow tapping.
+      // But if scrolling starts, we might want to cancel drag?
+      // For now, we just initialize.
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+      if (!isReordering) return;
+      // Prevent scrolling while dragging to reorder
+      if (e.cancelable) e.preventDefault(); 
+      
+      const touch = e.touches[0];
+      const targetId = getCategoryIdFromPoint(touch.clientX, touch.clientY);
+      
+      if (targetId && targetId !== category.id) {
+          setDragOverId(targetId);
+      } else {
+          setDragOverId(null);
+      }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+      if (!isReordering) return;
+      
+      const touch = e.changedTouches[0];
+      const targetId = getCategoryIdFromPoint(touch.clientX, touch.clientY);
+      
+      // Perform move
+      if (targetId && targetId !== category.id) {
+          onMoveCategory(category.id, targetId);
+      }
+      
+      // Reset
+      setDragOverId(null);
+  };
+
   return (
     <div className="select-none">
       <div 
+        data-category-id={category.id}
         draggable={isReordering}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
         onClick={() => !isReordering && onSelect(category.id)}
         className={`
           group flex items-center justify-between py-1.5 px-3 mx-2 rounded-md transition-all mb-0.5
@@ -86,11 +163,11 @@ const CategoryNavItem: React.FC<{
             ? 'bg-white text-primary-700 shadow-sm ring-1 ring-gray-200' 
             : 'text-gray-600 hover:bg-gray-200/50'
           }
-          ${isReordering ? 'cursor-grab active:cursor-grabbing border border-dashed border-gray-200' : 'cursor-pointer'}
+          ${isReordering ? 'cursor-grab active:cursor-grabbing border border-dashed border-gray-200 touch-none' : 'cursor-pointer'}
         `}
         style={{ paddingLeft: `${level * 12 + 12}px` }}
       >
-        <div className="flex items-center gap-2 overflow-hidden flex-1">
+        <div className="flex items-center gap-2 overflow-hidden flex-1 pointer-events-none">
             {isReordering && (
                 <GripVertical size={14} className="text-gray-400 shrink-0" />
             )}
@@ -98,7 +175,7 @@ const CategoryNavItem: React.FC<{
             {children.length > 0 ? (
                 <button 
                 onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
-                className="p-0.5 -ml-1 hover:bg-black/5 rounded text-gray-400"
+                className="p-0.5 -ml-1 hover:bg-black/5 rounded text-gray-400 pointer-events-auto"
                 >
                 {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 </button>
@@ -156,6 +233,8 @@ const CategoryNavItem: React.FC<{
           onMoveCategory={onMoveCategory}
           todosCount={0} 
           isReordering={isReordering}
+          dragOverId={dragOverId}
+          setDragOverId={setDragOverId}
         />
       ))}
     </div>
@@ -242,6 +321,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onCloseMobile 
   const { 
     categories, 
     todos, 
+    tags,
     viewMode, 
     selectedCategoryId, 
     setViewMode, 
@@ -249,15 +329,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onCloseMobile 
     setSelectedDate,
     addCategory,
     moveCategoryToTrash,
-    moveCategory
+    moveCategory,
+    upcomingDays,
+    setUpcomingDays
   } = useTodoStore();
 
   // Modal State
   const [isInputModalOpen, setIsInputModalOpen] = useState(false);
   const [targetParentId, setTargetParentId] = useState<string | null>(null);
 
+  // Drag State (Shared for Desktop & Mobile)
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
   // Search State
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchFilters, setSearchFilters] = useState({
+      title: true,
+      description: true,
+      tags: true
+  });
+  const [isSearchFilterOpen, setIsSearchFilterOpen] = useState(false);
+  const searchFilterRef = useRef<HTMLDivElement>(null);
 
   // Reorder Mode State
   const [isReordering, setIsReordering] = useState(false);
@@ -267,22 +359,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onCloseMobile 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Close menu when clicking outside
+  // Close menus when clicking outside
   useEffect(() => {
       const handleClickOutside = (event: MouseEvent) => {
           if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
               setIsMenuOpen(false);
           }
+          if (searchFilterRef.current && !searchFilterRef.current.contains(event.target as Node)) {
+              setIsSearchFilterOpen(false);
+          }
       };
 
-      if (isMenuOpen) {
+      if (isMenuOpen || isSearchFilterOpen) {
           document.addEventListener('mousedown', handleClickOutside);
       }
 
       return () => {
           document.removeEventListener('mousedown', handleClickOutside);
       };
-  }, [isMenuOpen]);
+  }, [isMenuOpen, isSearchFilterOpen]);
 
   const handleSelectCategory = (id: string) => {
     setSelectedCategory(id);
@@ -297,6 +392,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onCloseMobile 
   const handleSelectToday = () => {
     setSelectedDate(new Date().toISOString().split('T')[0]);
     if (onCloseMobile) onCloseMobile();
+  };
+
+  const handleSelectUpcoming = () => {
+      setViewMode('upcoming');
+      if (onCloseMobile) onCloseMobile();
   };
 
   const handleSelectTrash = () => {
@@ -324,17 +424,48 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onCloseMobile 
       moveCategoryToTrash(id);
   };
 
-  // Search Logic
+  // Search Logic with Tag Support and Match distinctions
   const filteredSearchResults = useMemo(() => {
     if (!searchQuery.trim()) return [];
     const query = searchQuery.toLowerCase();
+    
     // Only search non-deleted todos
-    return todos.filter(t => 
-        !t.deletedAt &&
-        (t.title.toLowerCase().includes(query) || 
-        (t.description && t.description.toLowerCase().includes(query)))
-    );
-  }, [todos, searchQuery]);
+    return todos.filter(t => !t.deletedAt).reduce((acc, t) => {
+        let matchType: 'title' | 'description' | 'tag' | null = null;
+        let matchText = '';
+
+        // Check Tag Match first (if enabled)
+        if (searchFilters.tags && t.tagIds) {
+            const matchedTag = t.tagIds
+                .map(id => tags.find(tag => tag.id === id))
+                .find(tag => tag && tag.name.toLowerCase().includes(query));
+            
+            if (matchedTag) {
+                matchType = 'tag';
+                matchText = matchedTag.name;
+            }
+        }
+
+        // Check Title (if enabled and no match yet)
+        if (!matchType && searchFilters.title && t.title.toLowerCase().includes(query)) {
+            matchType = 'title';
+            matchText = '标题匹配';
+        }
+
+        // Check Description (if enabled and no match yet)
+        if (!matchType && searchFilters.description && t.description && t.description.toLowerCase().includes(query)) {
+            matchType = 'description';
+            matchText = '描述匹配';
+        }
+
+        if (matchType) {
+            acc.push({ todo: t, matchType, matchText });
+        }
+
+        return acc;
+    }, [] as { todo: Todo, matchType: 'title' | 'description' | 'tag', matchText: string }[]);
+
+  }, [todos, tags, searchQuery, searchFilters]);
 
   const handleSearchResultClick = (todo: Todo) => {
     // Navigate to context
@@ -367,6 +498,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onCloseMobile 
     return path.length > 0 ? path.join(' / ') : '未知分类';
   };
 
+  // Date formatter for search results
+  const getTodoDateDisplay = (todo: Todo) => {
+    const dateObj = parseISO(todo.date);
+    if (!isValid(dateObj)) return '无效日期';
+
+    const currentYear = new Date().getFullYear();
+    const todoYear = dateObj.getFullYear();
+    let display = '';
+    
+    if (isToday(dateObj)) display = '今天';
+    else if (isTomorrow(dateObj)) display = '明天';
+    else if (todoYear !== currentYear) display = format(dateObj, 'yyyy-MM-dd', { locale: zhCN });
+    else display = format(dateObj, 'M月d日', { locale: zhCN });
+    
+    if (todo.time) display += ` ${todo.time}`;
+    return display;
+  };
+
   // Handle Root Drop (Making a category top-level)
   const handleRootDragOver = (e: React.DragEvent) => {
     if (!isReordering) return;
@@ -396,9 +545,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onCloseMobile 
   
   // Counts (excluding deleted items)
   const allActiveCount = todos.filter(t => !t.completed && !t.deletedAt).length;
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
   const todayCount = todos.filter(t => t.date === todayStr && !t.completed && !t.deletedAt).length;
   
+  // Calculate upcoming count
+  const upcomingCount = useMemo(() => {
+      // Safeguard against invalid upcomingDays
+      const safeDays = (typeof upcomingDays === 'number' && !isNaN(upcomingDays)) ? upcomingDays : 7;
+      
+      const today = new Date();
+      const end = addDays(today, safeDays);
+      const startStr = format(today, 'yyyy-MM-dd');
+      const endStr = format(end, 'yyyy-MM-dd');
+      
+      return todos.filter(t => {
+          if (t.completed || t.deletedAt) return false;
+          return t.date >= startStr && t.date <= endStr;
+      }).length;
+  }, [todos, upcomingDays]);
+
   const targetParentName = targetParentId ? categories.find(c => c.id === targetParentId)?.name || null : null;
 
   return (
@@ -406,23 +571,68 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onCloseMobile 
         <div className={`flex flex-col h-full bg-gray-50 ${className}`}>
             
             {/* Search Input */}
-            <div className="px-3 pt-3 pb-2 shrink-0">
-                <div className="relative">
+            <div className="px-3 pt-3 pb-2 shrink-0 z-20">
+                <div className="relative" ref={searchFilterRef}>
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                     <input 
                         type="text"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder="搜索待办..."
-                        className="w-full pl-9 pr-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 placeholder:text-gray-400"
+                        className="w-full pl-9 pr-14 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 placeholder:text-gray-400"
                     />
-                    {searchQuery && (
-                        <button 
-                            onClick={() => setSearchQuery('')}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    
+                    <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center">
+                         {searchQuery && (
+                            <button 
+                                onClick={() => setSearchQuery('')}
+                                className="p-1 text-gray-400 hover:text-gray-600 mr-1"
+                            >
+                                <X size={14} />
+                            </button>
+                        )}
+                        <button
+                            onClick={() => setIsSearchFilterOpen(!isSearchFilterOpen)}
+                            className={`p-1.5 rounded-md transition-colors ${isSearchFilterOpen ? 'bg-primary-100 text-primary-600' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+                            title="搜索筛选"
                         >
-                            <X size={14} />
+                            <Filter size={14} />
                         </button>
+                    </div>
+
+                    {/* Filter Dropdown */}
+                    {isSearchFilterOpen && (
+                        <div className="absolute top-full right-0 mt-1 w-32 bg-white rounded-lg shadow-xl border border-gray-100 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100 p-1">
+                            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-2 py-1">搜索范围</div>
+                            
+                            <label className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm text-gray-700">
+                                <input 
+                                    type="checkbox" 
+                                    checked={searchFilters.title}
+                                    onChange={(e) => setSearchFilters({...searchFilters, title: e.target.checked})}
+                                    className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                                />
+                                标题
+                            </label>
+                            <label className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm text-gray-700">
+                                <input 
+                                    type="checkbox" 
+                                    checked={searchFilters.description}
+                                    onChange={(e) => setSearchFilters({...searchFilters, description: e.target.checked})}
+                                    className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                                />
+                                描述
+                            </label>
+                            <label className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm text-gray-700">
+                                <input 
+                                    type="checkbox" 
+                                    checked={searchFilters.tags}
+                                    onChange={(e) => setSearchFilters({...searchFilters, tags: e.target.checked})}
+                                    className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                                />
+                                标签
+                            </label>
+                        </div>
                     )}
                 </div>
             </div>
@@ -436,27 +646,62 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onCloseMobile 
                     
                     {filteredSearchResults.length === 0 ? (
                         <div className="text-center py-8 text-sm text-gray-400">
-                            没有找到匹配的任务
+                             {(searchFilters.title || searchFilters.description || searchFilters.tags) 
+                                ? '没有找到匹配的任务' 
+                                : '请至少选择一个搜索范围'}
                         </div>
                     ) : (
-                        filteredSearchResults.map(todo => (
+                        filteredSearchResults.map(({ todo, matchType, matchText }) => {
+                            const isOverdue = !todo.completed && todo.date < todayStr;
+                            return (
                             <div 
                                 key={todo.id}
                                 onClick={() => handleSearchResultClick(todo)}
-                                className="group flex flex-col py-2 px-3 rounded-md cursor-pointer hover:bg-white hover:shadow-sm hover:ring-1 hover:ring-gray-200 transition-all mb-1"
+                                className="group flex flex-col py-2.5 px-3 rounded-md cursor-pointer hover:bg-white hover:shadow-sm hover:ring-1 hover:ring-gray-200 transition-all mb-1 border border-transparent"
                             >
-                                <div className="flex items-center gap-2 mb-1">
-                                    <div className={`w-1.5 h-1.5 rounded-full ${todo.completed ? 'bg-green-400' : 'bg-primary-500'}`}></div>
+                                {/* Top Row: Status + Title */}
+                                <div className="flex items-center gap-2 mb-1.5">
+                                    <div className={`w-1.5 h-1.5 shrink-0 rounded-full ${todo.completed ? 'bg-green-400' : 'bg-primary-500'}`}></div>
                                     <span className={`text-sm font-medium truncate ${todo.completed ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
                                         {todo.title}
                                     </span>
                                 </div>
-                                <div className="flex items-center gap-1.5 pl-3.5 text-xs text-gray-400">
-                                    <FolderOpen size={10} />
-                                    <span className="truncate">{getCategoryPath(todo.categoryId)}</span>
+                                
+                                {/* Middle Row: Dates */}
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-3.5 mb-1.5">
+                                     {/* Due Date */}
+                                     <div className={`flex items-center gap-1 text-[11px] leading-tight ${
+                                         isOverdue 
+                                            ? 'text-red-600 font-medium'
+                                            : isToday(parseISO(todo.date)) 
+                                                ? 'text-orange-600 font-medium' 
+                                                : 'text-gray-500'
+                                     }`}>
+                                         <Calendar size={11} className="shrink-0" />
+                                         <span>{isOverdue ? '已过期 ' : ''}{getTodoDateDisplay(todo)}</span>
+                                     </div>
+                                </div>
+                                
+                                {/* Bottom Row: Category + Match Badge */}
+                                <div className="flex items-center justify-between gap-2 pl-3.5">
+                                    <div className="flex items-center gap-1.5 text-xs text-gray-400 min-w-0">
+                                        <FolderOpen size={11} className="shrink-0" />
+                                        <span className="truncate max-w-[80px]">{getCategoryPath(todo.categoryId)}</span>
+                                    </div>
+                                    
+                                    {/* Match Badge */}
+                                    <div className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                        matchType === 'tag' ? 'bg-indigo-50 text-indigo-600' :
+                                        matchType === 'title' ? 'bg-blue-50 text-blue-600' :
+                                        'bg-gray-100 text-gray-500'
+                                    }`}>
+                                        {matchType === 'tag' && <TagIcon size={8} className="inline mr-1" />}
+                                        {matchType === 'tag' ? `标签: ${matchText}` : matchText}
+                                    </div>
                                 </div>
                             </div>
-                        ))
+                            );
+                        })
                     )}
                 </div>
             ) : (
@@ -467,6 +712,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onCloseMobile 
                         <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 px-3 mt-2">
                             总览
                         </h3>
+                        {/* All Tasks */}
                         <button
                             onClick={handleSelectAll}
                             className={`w-full flex items-center justify-between px-3 py-1.5 mx-auto w-[calc(100%-16px)] rounded-md text-sm font-medium transition-colors ${
@@ -481,6 +727,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onCloseMobile 
                             </div>
                             {allActiveCount > 0 && <span className="text-xs text-gray-400">{allActiveCount}</span>}
                         </button>
+                        
+                        {/* Today */}
                         <button
                             onClick={handleSelectToday}
                             className={`w-full flex items-center justify-between px-3 py-1.5 mx-auto w-[calc(100%-16px)] rounded-md text-sm font-medium transition-colors ${
@@ -495,6 +743,41 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onCloseMobile 
                             </div>
                             {todayCount > 0 && <span className="text-xs text-gray-400">{todayCount}</span>}
                         </button>
+                        
+                        {/* Upcoming - Custom Days */}
+                        <div 
+                            onClick={handleSelectUpcoming}
+                            className={`w-full flex items-center justify-between px-3 py-1.5 mx-auto w-[calc(100%-16px)] rounded-md text-sm font-medium transition-colors cursor-pointer group ${
+                                viewMode === 'upcoming'
+                                    ? 'bg-white text-primary-700 shadow-sm ring-1 ring-gray-200' 
+                                    : 'text-gray-600 hover:bg-gray-200/50'
+                            }`}
+                        >
+                             <div className="flex items-center gap-3 flex-1">
+                                <CalendarRange size={16} />
+                                <div className="flex items-center gap-1">
+                                    <span>未来</span>
+                                    <input 
+                                        type="number" 
+                                        min="1"
+                                        max="3650"
+                                        value={upcomingDays}
+                                        onClick={(e) => e.stopPropagation()} // Prevent triggering view change on input click
+                                        onChange={(e) => {
+                                            const val = parseInt(e.target.value);
+                                            // Handle NaN (e.g. empty input) by defaulting to 0 or keeping current valid state?
+                                            // Here we default to 0 to allow user to type "1" after clearing
+                                            setUpcomingDays(isNaN(val) ? 0 : val);
+                                        }}
+                                        className={`w-12 px-0 text-center text-xs bg-transparent border-b border-gray-300 focus:border-primary-500 focus:outline-none focus:text-primary-700 appearance-none m-0 p-0 font-bold ${
+                                            viewMode === 'upcoming' ? 'text-primary-700 border-primary-300' : 'text-gray-500'
+                                        }`}
+                                    />
+                                    <span>天</span>
+                                </div>
+                            </div>
+                            {upcomingCount > 0 && <span className="text-xs text-gray-400">{upcomingCount}</span>}
+                        </div>
                     </div>
 
                     {/* Categories Group */}
@@ -577,6 +860,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onCloseMobile 
                                     onMoveCategory={moveCategory}
                                     todosCount={countTodos(cat.id, todos, categories)}
                                     isReordering={isReordering}
+                                    dragOverId={dragOverId}
+                                    setDragOverId={setDragOverId}
                                 />
                             ))
                         )}

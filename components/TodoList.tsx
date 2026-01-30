@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useTodoStore } from '../store/useTodoStore';
 import { TodoItem } from './TodoItem';
-import { format, parseISO, isToday, isTomorrow } from 'date-fns';
+import { format, parseISO, isToday, isTomorrow, addDays } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { 
   Plus, 
@@ -20,7 +20,8 @@ import {
   Undo2,
   ChevronRight,
   ChevronDown,
-  Folder
+  Folder,
+  CalendarRange
 } from 'lucide-react';
 import { AddTodoModal } from './AddTodoModal';
 import { Button } from './Button';
@@ -163,6 +164,7 @@ export const TodoList: React.FC = () => {
     categories,
     sortBy,
     sortDirection,
+    upcomingDays,
     setSortBy,
     setSortDirection,
     updateCategory,
@@ -285,6 +287,14 @@ export const TodoList: React.FC = () => {
     } else if (viewMode === 'category' && selectedCategoryId) {
         const ids = [selectedCategoryId, ...getDescendantIds(selectedCategoryId)];
         result = result.filter(t => t.categoryId && ids.includes(t.categoryId));
+    } else if (viewMode === 'upcoming') {
+        const safeDays = (typeof upcomingDays === 'number' && !isNaN(upcomingDays)) ? upcomingDays : 7;
+        const today = new Date();
+        const end = addDays(today, safeDays);
+        const startStr = format(today, 'yyyy-MM-dd');
+        const endStr = format(end, 'yyyy-MM-dd');
+        
+        result = result.filter(t => t.date >= startStr && t.date <= endStr);
     }
 
     // Sort
@@ -302,7 +312,7 @@ export const TodoList: React.FC = () => {
         }
         return sortDirection === 'asc' ? comparison : -comparison;
     });
-  }, [todos, selectedDate, viewMode, selectedCategoryId, categories, sortBy, sortDirection]);
+  }, [todos, selectedDate, viewMode, selectedCategoryId, categories, sortBy, sortDirection, upcomingDays]);
 
   const progress = useMemo(() => {
     if (filteredTodos.length === 0) return 0;
@@ -322,13 +332,17 @@ export const TodoList: React.FC = () => {
         const cat = categories.find(c => c.id === selectedCategoryId);
         return cat ? cat.name : '未知分类';
     }
+    if (viewMode === 'upcoming') {
+        return `未来 ${upcomingDays} 天待办`;
+    }
     return '所有任务';
-  }, [viewMode, selectedDate, selectedCategoryId, categories]);
+  }, [viewMode, selectedDate, selectedCategoryId, categories, upcomingDays]);
 
   const viewIcon = useMemo(() => {
       if (viewMode === 'trash') return <Recycle className="text-red-500" size={24} />;
       if (viewMode === 'all') return <Layers className="text-primary-500" size={24} />;
       if (viewMode === 'category') return <FolderOpen className="text-primary-500" size={24} />;
+      if (viewMode === 'upcoming') return <CalendarRange className="text-primary-500" size={24} />;
       return <CalendarIcon className="text-primary-500" size={24} />;
   }, [viewMode]);
 
