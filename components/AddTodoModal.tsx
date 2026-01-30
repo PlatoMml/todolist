@@ -1,9 +1,11 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ChevronDown, Folder, Check, Tag as TagIcon, Plus } from 'lucide-react';
-import { Priority, Category, Todo, Tag } from '../types';
+import { X, ChevronDown, Folder, Check, Tag as TagIcon, Plus, Repeat } from 'lucide-react';
+import { Priority, Category, Todo, Tag, RepeatConfig } from '../types';
 import { useTodoStore } from '../store/useTodoStore';
 import { Button } from './Button';
+import { getDate } from 'date-fns';
 
 interface AddTodoModalProps {
   isOpen: boolean;
@@ -19,6 +21,12 @@ const getTodayDate = () => {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+// Helper to parse YYYY-MM-DD to local Date object
+const parseLocalDate = (dateStr: string) => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
 };
 
 export const AddTodoModal: React.FC<AddTodoModalProps> = ({ 
@@ -38,6 +46,12 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   
+  // Repeat State
+  const [repeatType, setRepeatType] = useState<'none' | 'daily' | 'monthly'>('none');
+  const [repeatInterval, setRepeatInterval] = useState<number>(1);
+  const [isRepeatDropdownOpen, setIsRepeatDropdownOpen] = useState(false);
+  const repeatDropdownRef = useRef<HTMLDivElement>(null);
+
   // Tag State
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
@@ -57,15 +71,18 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
       if (tagContainerRef.current && !tagContainerRef.current.contains(event.target as Node)) {
         setIsTagDropdownOpen(false);
       }
+      if (repeatDropdownRef.current && !repeatDropdownRef.current.contains(event.target as Node)) {
+          setIsRepeatDropdownOpen(false);
+      }
     };
 
-    if (isCategoryDropdownOpen || isTagDropdownOpen) {
+    if (isCategoryDropdownOpen || isTagDropdownOpen || isRepeatDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isCategoryDropdownOpen, isTagDropdownOpen]);
+  }, [isCategoryDropdownOpen, isTagDropdownOpen, isRepeatDropdownOpen]);
 
   // Reset or Populate form when opening
   useEffect(() => {
@@ -79,6 +96,16 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
         setDate(todoToEdit.date);
         setTime(todoToEdit.time || '');
         setSelectedTagIds(todoToEdit.tagIds || []);
+        
+        // Populate Repeat
+        if (todoToEdit.repeat) {
+            setRepeatType(todoToEdit.repeat.type);
+            setRepeatInterval(todoToEdit.repeat.interval || 1);
+        } else {
+            setRepeatType('none');
+            setRepeatInterval(1);
+        }
+
       } else {
         // Create Mode
         setTitle('');
@@ -88,9 +115,12 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
         setDate(defaultDate || getTodayDate());
         setTime('');
         setSelectedTagIds([]);
+        setRepeatType('none');
+        setRepeatInterval(1);
       }
       setIsCategoryDropdownOpen(false);
       setIsTagDropdownOpen(false);
+      setIsRepeatDropdownOpen(false);
       setTagInput('');
     }
   }, [isOpen, todoToEdit, defaultDate, defaultCategoryId]);
@@ -104,6 +134,15 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
     // Validate date (must not be empty)
     const finalDate = date || getTodayDate();
 
+    // Construct Repeat Config
+    let repeatConfig: RepeatConfig | undefined = undefined;
+    if (repeatType !== 'none') {
+        repeatConfig = {
+            type: repeatType,
+            interval: repeatType === 'daily' ? (Number(repeatInterval) || 1) : 1
+        };
+    }
+
     if (todoToEdit) {
       // Update existing
       updateTodo(todoToEdit.id, {
@@ -114,6 +153,7 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
         time: time || undefined,
         categoryId: categoryId || undefined,
         tagIds: selectedTagIds,
+        repeat: repeatConfig,
       });
     } else {
       // Create new
@@ -125,6 +165,7 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
         time: time || undefined,
         categoryId: categoryId || undefined,
         tagIds: selectedTagIds,
+        repeat: repeatConfig,
       });
     }
 
@@ -178,6 +219,9 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
   const selectedCategoryName = categoryId 
     ? categories.find(c => c.id === categoryId)?.name 
     : '无分类';
+
+  // Get current date day for monthly display
+  const currentDayOfMonth = date ? getDate(parseLocalDate(date)) : new Date().getDate();
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
@@ -241,6 +285,79 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
                 />
               </div>
             </div>
+          </div>
+
+          {/* Repeat Configuration */}
+          <div className="relative" ref={repeatDropdownRef}>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                重复待办
+              </label>
+              <div 
+                onClick={() => setIsRepeatDropdownOpen(!isRepeatDropdownOpen)}
+                className={`
+                    w-full px-3 py-2 bg-white border rounded-lg flex items-center justify-between cursor-pointer transition-all
+                    ${isRepeatDropdownOpen ? 'border-primary-500 ring-2 ring-primary-500/20' : 'border-gray-200 hover:border-gray-300'}
+                `}
+              >
+                 <div className="flex items-center gap-2 text-sm text-gray-700">
+                    <Repeat size={16} className="text-gray-400" />
+                    <span className={repeatType !== 'none' ? 'text-gray-900' : 'text-gray-500'}>
+                        {repeatType === 'none' && '不重复'}
+                        {repeatType === 'daily' && `每 ${repeatInterval} 天`}
+                        {repeatType === 'monthly' && `每月 ${currentDayOfMonth} 日`}
+                    </span>
+                 </div>
+                 <ChevronDown size={16} className={`text-gray-400 transition-transform ${isRepeatDropdownOpen ? 'rotate-180' : ''}`} />
+              </div>
+
+              {isRepeatDropdownOpen && (
+                 <div className="absolute top-full left-0 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100 p-2">
+                     <button
+                        type="button"
+                        onClick={() => { setRepeatType('none'); setIsRepeatDropdownOpen(false); }}
+                        className={`w-full text-left px-3 py-2 rounded text-sm ${repeatType === 'none' ? 'bg-primary-50 text-primary-700' : 'text-gray-700 hover:bg-gray-50'}`}
+                     >
+                         不重复
+                     </button>
+                     <div className="h-px bg-gray-100 my-1"></div>
+                     
+                     {/* Daily Option with Input */}
+                     <div className={`rounded p-2 ${repeatType === 'daily' ? 'bg-primary-50' : 'hover:bg-gray-50'}`}>
+                         <div className="flex items-center justify-between mb-1">
+                            <button
+                                type="button"
+                                onClick={() => setRepeatType('daily')}
+                                className={`text-sm text-left flex-1 ${repeatType === 'daily' ? 'text-primary-700 font-medium' : 'text-gray-700'}`}
+                            >
+                                每 X 天
+                            </button>
+                         </div>
+                         {repeatType === 'daily' && (
+                             <div className="flex items-center gap-2 mt-1">
+                                 <span className="text-xs text-gray-500">每</span>
+                                 <input 
+                                    type="number" 
+                                    min="1" 
+                                    max="365"
+                                    value={repeatInterval}
+                                    onChange={(e) => setRepeatInterval(Math.max(1, parseInt(e.target.value) || 1))}
+                                    className="w-16 px-2 py-1 text-sm border border-primary-200 rounded focus:outline-none focus:border-primary-500 text-center"
+                                 />
+                                 <span className="text-xs text-gray-500">天</span>
+                             </div>
+                         )}
+                     </div>
+
+                     {/* Monthly Option */}
+                     <button
+                        type="button"
+                        onClick={() => { setRepeatType('monthly'); setIsRepeatDropdownOpen(false); }}
+                        className={`w-full text-left px-3 py-2 rounded text-sm mt-1 ${repeatType === 'monthly' ? 'bg-primary-50 text-primary-700' : 'text-gray-700 hover:bg-gray-50'}`}
+                     >
+                         每月 {currentDayOfMonth} 日
+                     </button>
+                 </div>
+              )}
           </div>
 
           {/* Custom Category Select */}

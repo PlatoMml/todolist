@@ -1,8 +1,9 @@
+
 import React, { useMemo, useState } from 'react';
 import { useTodoStore } from '../store/useTodoStore';
 import { TodoItem } from './TodoItem';
-import { format, parseISO, isToday, isTomorrow, addDays } from 'date-fns';
-import { zhCN } from 'date-fns/locale';
+import { format, isToday, isTomorrow, addDays, addMonths } from 'date-fns';
+import zhCN from 'date-fns/locale/zh-CN';
 import { 
   Plus, 
   ListTodo, 
@@ -28,7 +29,11 @@ import { Button } from './Button';
 import { SortBy, SortDirection, Category, Todo } from '../types';
 import { ConfirmModal } from './ConfirmModal';
 
-// --- Recursive Trash Explorer Components ---
+// Helper to parse YYYY-MM-DD to local Date object
+const parseLocalDate = (dateStr: string) => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
 
 interface TrashCategoryNodeProps {
     category: Category;
@@ -52,13 +57,8 @@ const TrashCategoryNode: React.FC<TrashCategoryNodeProps> = ({
     onDeleteTodo
 }) => {
     const [isExpanded, setIsExpanded] = useState(false);
-    
-    // Find children in this deleted folder
-    // Note: We show ALL children here, even if they aren't explicitly deleted, 
-    // because they are inaccessible in the main view due to the parent being deleted.
     const childCategories = allCategories.filter(c => c.parentId === category.id);
     const childTodos = allTodos.filter(t => t.categoryId === category.id);
-    
     const isEmpty = childCategories.length === 0 && childTodos.length === 0;
 
     return (
@@ -86,7 +86,7 @@ const TrashCategoryNode: React.FC<TrashCategoryNodeProps> = ({
                     <button 
                         onClick={(e) => { e.stopPropagation(); onRestoreCategory(category); }}
                         className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                        title="还原分类 (如父级已删除，将移至根目录)"
+                        title="还原分类"
                     >
                         <Undo2 size={16} />
                     </button>
@@ -102,7 +102,6 @@ const TrashCategoryNode: React.FC<TrashCategoryNodeProps> = ({
 
             {isExpanded && (
                 <div className="border-l border-gray-100 ml-4 pl-1">
-                    {/* Render Child Categories */}
                     {childCategories.map(cat => (
                         <TrashCategoryNode
                             key={cat.id}
@@ -116,8 +115,6 @@ const TrashCategoryNode: React.FC<TrashCategoryNodeProps> = ({
                             onDeleteTodo={onDeleteTodo}
                         />
                     ))}
-                    
-                    {/* Render Child Todos */}
                     {childTodos.map(todo => (
                         <div 
                             key={todo.id}
@@ -133,7 +130,7 @@ const TrashCategoryNode: React.FC<TrashCategoryNodeProps> = ({
                                 <button 
                                     onClick={() => onRestoreTodo(todo)}
                                     className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                                    title="还原任务 (如分类已删除，将移至无分类)"
+                                    title="还原任务"
                                 >
                                     <Undo2 size={14} />
                                 </button>
@@ -153,8 +150,6 @@ const TrashCategoryNode: React.FC<TrashCategoryNodeProps> = ({
     );
 };
 
-
-// --- Main TodoList Component ---
 export const TodoList: React.FC = () => {
   const { 
     todos, 
@@ -169,8 +164,8 @@ export const TodoList: React.FC = () => {
     setSortDirection,
     updateCategory,
     updateTodo,
-    restoreCategory, // Simple restore (clears deletedAt)
-    restoreTodo,     // Simple restore (clears deletedAt)
+    restoreCategory,
+    restoreTodo,
     permanentlyDeleteCategory,
     permanentlyDeleteTodo
   } = useTodoStore();
@@ -178,43 +173,9 @@ export const TodoList: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
   
-  // State for permanent delete confirmations
   const [permDeleteCatId, setPermDeleteCatId] = useState<string | null>(null);
   const [permDeleteTodoId, setPermDeleteTodoId] = useState<string | null>(null);
 
-  // --- Handlers for Smart Restore ---
-  
-  const handleSmartRestoreCategory = (cat: Category) => {
-      // Check if parent is deleted
-      const parent = cat.parentId ? categories.find(p => p.id === cat.parentId) : null;
-      const isParentDeleted = parent ? (parent.deletedAt !== undefined) : false;
-
-      // If parent is deleted, we must move this category to root to make it visible
-      if (isParentDeleted) {
-          updateCategory(cat.id, { parentId: null, deletedAt: undefined });
-      } else {
-          // Standard restore
-          restoreCategory(cat.id);
-      }
-  };
-
-  const handleSmartRestoreTodo = (todo: Todo) => {
-      // Check if category is deleted
-      const cat = todo.categoryId ? categories.find(c => c.id === todo.categoryId) : null;
-      const isCategoryDeleted = cat ? (cat.deletedAt !== undefined) : false;
-
-      // If category is deleted, move todo to 'no category' (root)
-      if (isCategoryDeleted) {
-          updateTodo(todo.id, { categoryId: undefined, deletedAt: undefined });
-      } else {
-          // Standard restore
-          restoreTodo(todo.id);
-      }
-  };
-
-
-  // --- Helper Logic ---
-  
   // Close sort menu when clicking outside
   React.useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -231,60 +192,106 @@ export const TodoList: React.FC = () => {
     };
   }, [isSortMenuOpen]);
 
-  const getDescendantIds = (parentId: string): string[] => {
-    const children = categories.filter(c => c.parentId === parentId);
-    let ids = children.map(c => c.id);
-    children.forEach(child => {
-      ids = [...ids, ...getDescendantIds(child.id)];
-    });
-    return ids;
-  };
+  // View Filtering Logic
+  const filteredTodos = useMemo(() => {
+    if (viewMode === 'trash') return [];
 
-  const isCategoryChainDeleted = (catId?: string): boolean => {
+    // 1. Basic Filters (Hide deleted, hide hidden categories)
+    const isCategoryChainDeleted = (catId?: string): boolean => {
       if (!catId) return false;
       const cat = categories.find(c => c.id === catId);
       if (!cat) return false;
       if (cat.deletedAt) return true;
       if (cat.parentId) return isCategoryChainDeleted(cat.parentId);
       return false;
-  };
+    };
 
-  // --- View Mode Logic ---
-
-  // 1. TRASH VIEW LOGIC
-  const trashRootCategories = useMemo(() => {
-      if (viewMode !== 'trash') return [];
-      // Show categories that are explicitly deleted
-      return categories.filter(c => c.deletedAt !== undefined);
-  }, [viewMode, categories]);
-
-  const trashRootTodos = useMemo(() => {
-      if (viewMode !== 'trash') return [];
-      // Show todos that are explicitly deleted...
-      return todos.filter(t => 
-        t.deletedAt !== undefined && 
-        // ...AND they are NOT inside a category that is also in the trash (to avoid duplication)
-        // Actually, if a todo is deleted, it is deleted. 
-        // Logic: 
-        // If a todo has `deletedAt`, it appears at the root of Trash list IF:
-        //   1. It has no category.
-        //   2. OR its category is NOT deleted (active).
-        // If its category IS deleted, it will appear inside the folder structure of that deleted category.
-        (!t.categoryId || !categories.find(c => c.id === t.categoryId)?.deletedAt)
-      );
-  }, [viewMode, todos, categories]);
-
-
-  // 2. NORMAL VIEW LOGIC (Filtered Todos)
-  const filteredTodos = useMemo(() => {
-    if (viewMode === 'trash') return []; // Handled separately
-
-    let result = todos.filter(t => !t.deletedAt); // Hide deleted
-    result = result.filter(t => !isCategoryChainDeleted(t.categoryId)); // Hide hidden via parent
+    let result = todos.filter(t => !t.deletedAt);
+    result = result.filter(t => !isCategoryChainDeleted(t.categoryId));
 
     if (viewMode === 'date' && selectedDate) {
-        result = result.filter(t => t.date === selectedDate);
+        // --- REAL TASKS ---
+        const realTasks = result.filter(t => t.date === selectedDate);
+        
+        // --- VIRTUAL (PROJECTED) TASKS ---
+        
+        // Build a map of ALL real tasks (including deleted) to detect blockers
+        // Key: "YYYY-MM-DD|Title" -> Value: { isDeleted: boolean }
+        const realTaskMap = new Map<string, { isDeleted: boolean }>();
+        todos.forEach(t => {
+            realTaskMap.set(`${t.date}|${t.title}`, { isDeleted: !!t.deletedAt });
+        });
+
+        // Identify all potential sources: BOTH Active and Deleted recurring tasks
+        // Why Deleted? Because deleting a single instance (creating a gap) shouldn't stop the projection of future instances.
+        // The deleted task itself acts as the anchor for the next interval.
+        const activeRecurringTasks = todos.filter(t => 
+            t.repeat
+        );
+
+        const virtualTodos: Todo[] = [];
+        
+        activeRecurringTasks.forEach(source => {
+            // Optimization: Only scan if source started before or on selected date
+            if (source.date >= selectedDate) return;
+
+            let pointerDate = parseLocalDate(source.date);
+            
+            // Limit loop to prevent issues
+            let safety = 0;
+            while (safety < 1000) {
+                // Advance date
+                if (source.repeat?.type === 'daily') {
+                    pointerDate = addDays(pointerDate, source.repeat.interval);
+                } else if (source.repeat?.type === 'monthly') {
+                    pointerDate = addMonths(pointerDate, 1);
+                } else {
+                    break;
+                }
+                safety++;
+
+                const dateStr = format(pointerDate, 'yyyy-MM-dd');
+
+                // Check collision
+                const collision = realTaskMap.get(`${dateStr}|${source.title}`);
+                if (collision) {
+                    // If ANY real task exists (Active or Deleted), this source STOPS projecting here.
+                    // The real task (collision) takes over responsibility for projecting subsequent tasks.
+                    // This prevents duplicates: Source A -> projects B. B exists (Deleted).
+                    // If A continues, it projects C.
+                    // But B (Deleted) also projects C.
+                    // So A MUST stop at B.
+                    break;
+                }
+
+                // If we reached the target date and it's not blocked
+                if (dateStr === selectedDate) {
+                    virtualTodos.push({
+                        ...source,
+                        id: `virtual-${source.id}-${dateStr}`,
+                        date: dateStr,
+                        isVirtual: true,
+                        // keep original created/updated
+                    });
+                    break; // Found the projection for this view
+                }
+
+                // If we went past, stop
+                if (dateStr > selectedDate) {
+                    break;
+                }
+            }
+        });
+
+        result = [...realTasks, ...virtualTodos];
+
     } else if (viewMode === 'category' && selectedCategoryId) {
+        const getDescendantIds = (parentId: string): string[] => {
+            const children = categories.filter(c => c.parentId === parentId);
+            let ids = children.map(c => c.id);
+            children.forEach(child => { ids = [...ids, ...getDescendantIds(child.id)]; });
+            return ids;
+        };
         const ids = [selectedCategoryId, ...getDescendantIds(selectedCategoryId)];
         result = result.filter(t => t.categoryId && ids.includes(t.categoryId));
     } else if (viewMode === 'upcoming') {
@@ -293,11 +300,9 @@ export const TodoList: React.FC = () => {
         const end = addDays(today, safeDays);
         const startStr = format(today, 'yyyy-MM-dd');
         const endStr = format(end, 'yyyy-MM-dd');
-        
         result = result.filter(t => t.date >= startStr && t.date <= endStr);
     }
 
-    // Sort
     return [...result].sort((a, b) => {
         if (a.completed !== b.completed) return a.completed ? 1 : -1;
         let comparison = 0;
@@ -320,10 +325,43 @@ export const TodoList: React.FC = () => {
     return Math.round((completed / filteredTodos.length) * 100);
   }, [filteredTodos]);
 
+  // Trash filtering logic
+  const trashRootCategories = useMemo(() => {
+      if (viewMode !== 'trash') return [];
+      return categories.filter(c => c.deletedAt !== undefined);
+  }, [viewMode, categories]);
+
+  const trashRootTodos = useMemo(() => {
+      if (viewMode !== 'trash') return [];
+      return todos.filter(t => 
+        t.deletedAt !== undefined && 
+        (!t.categoryId || !categories.find(c => c.id === t.categoryId)?.deletedAt)
+      );
+  }, [viewMode, todos, categories]);
+
+  // Restore handlers
+  const handleSmartRestoreCategory = (cat: Category) => {
+      const parent = cat.parentId ? categories.find(p => p.id === cat.parentId) : null;
+      if (parent && parent.deletedAt) {
+          updateCategory(cat.id, { parentId: null, deletedAt: undefined });
+      } else {
+          restoreCategory(cat.id);
+      }
+  };
+
+  const handleSmartRestoreTodo = (todo: Todo) => {
+      const cat = todo.categoryId ? categories.find(c => c.id === todo.categoryId) : null;
+      if (cat && cat.deletedAt) {
+          updateTodo(todo.id, { categoryId: undefined, deletedAt: undefined });
+      } else {
+          restoreTodo(todo.id);
+      }
+  };
+
   const viewTitle = useMemo(() => {
     if (viewMode === 'trash') return '回收站';
     if (viewMode === 'date' && selectedDate) {
-        const date = parseISO(selectedDate);
+        const date = parseLocalDate(selectedDate);
         if (isToday(date)) return '今天';
         if (isTomorrow(date)) return '明天';
         return format(date, 'yyyy年M月d日', { locale: zhCN });
@@ -352,8 +390,6 @@ export const TodoList: React.FC = () => {
       { value: 'createdAt', label: '创建时间', icon: <Clock size={14} /> },
       { value: 'updatedAt', label: '修改时间', icon: <History size={14} /> },
   ];
-
-  const isEmptyTrash = viewMode === 'trash' && trashRootCategories.length === 0 && trashRootTodos.length === 0;
 
   return (
     <div className="h-full flex flex-col bg-white overflow-hidden relative">
@@ -437,9 +473,8 @@ export const TodoList: React.FC = () => {
       {/* List Content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-2 scroll-smooth bg-white">
         
-        {/* === TRASH EXPLORER VIEW === */}
         {viewMode === 'trash' ? (
-            isEmptyTrash ? (
+            trashRootCategories.length === 0 && trashRootTodos.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-gray-400 pb-20">
                     <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
                         <Recycle size={24} className="text-gray-300" />
@@ -448,7 +483,6 @@ export const TodoList: React.FC = () => {
                 </div>
             ) : (
                 <div className="space-y-1">
-                    {/* Render Deleted Categories Tree */}
                     {trashRootCategories.map(cat => (
                         <TrashCategoryNode
                             key={cat.id}
@@ -462,8 +496,6 @@ export const TodoList: React.FC = () => {
                             onDeleteTodo={setPermDeleteTodoId}
                         />
                     ))}
-
-                    {/* Render Loose Deleted Todos (Root) */}
                     {trashRootTodos.map(todo => (
                         <div key={todo.id} className="group flex items-center justify-between py-2 px-3 rounded-md hover:bg-white border border-transparent hover:border-gray-100 hover:shadow-sm transition-all mb-1">
                             <div className="flex items-center gap-3 overflow-hidden">
@@ -498,7 +530,6 @@ export const TodoList: React.FC = () => {
                 </div>
             )
         ) : (
-        // === STANDARD TODO LIST VIEW ===
             filteredTodos.length > 0 ? (
                 filteredTodos.map(todo => (
                     <TodoItem key={todo.id} todo={todo} />
@@ -524,7 +555,6 @@ export const TodoList: React.FC = () => {
         defaultCategoryId={selectedCategoryId || undefined}
       />
       
-      {/* Permanent Delete Confirmation for Category */}
       <ConfirmModal
          isOpen={!!permDeleteCatId}
          onClose={() => setPermDeleteCatId(null)}
@@ -538,7 +568,6 @@ export const TodoList: React.FC = () => {
          }
       />
 
-       {/* Permanent Delete Confirmation for Todo */}
        <ConfirmModal
          isOpen={!!permDeleteTodoId}
          onClose={() => setPermDeleteTodoId(null)}

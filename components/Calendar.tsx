@@ -1,23 +1,29 @@
-import React, { useState } from 'react';
+
+import React, { useState, useMemo } from 'react';
 import { 
   format, 
-  startOfMonth, 
   endOfMonth, 
-  startOfWeek, 
   endOfWeek, 
   eachDayOfInterval, 
   isSameMonth, 
   addMonths, 
-  subMonths,
   isToday,
-  setMonth,
-  setYear,
+  addDays,
   getYear,
   getMonth
 } from 'date-fns';
-import { zhCN } from 'date-fns/locale';
+import startOfMonth from 'date-fns/startOfMonth';
+import startOfWeek from 'date-fns/startOfWeek';
+import zhCN from 'date-fns/locale/zh-CN';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTodoStore } from '../store/useTodoStore';
+import { Todo } from '../types';
+
+// Helper to parse YYYY-MM-DD to local Date object
+const parseLocalDate = (dateStr: string) => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
 
 export const Calendar: React.FC = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -30,24 +36,96 @@ export const Calendar: React.FC = () => {
 
   const days = eachDayOfInterval({ start: startDate, end: endDate });
 
-  const prevMonth = () => setCurrentDate(subMonths(currentDate, 1));
+  // Use addMonths(date, -1) instead of subMonths to minimize imports/errors
+  const prevMonth = () => setCurrentDate(addMonths(currentDate, -1));
   const nextMonth = () => setCurrentDate(addMonths(currentDate, 1));
 
   const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
 
-  // Check if a day has todos
+  // --- Date Projection Logic for Recurrence ---
+  // Calculates all dates (real + virtual) that have tasks in the current view
+  const { todoDates, completedDates } = useMemo(() => {
+      const activeDates = new Set<string>();
+      const completedDatesSet = new Set<string>();
+      const calendarStartStr = format(startDate, 'yyyy-MM-dd');
+      const calendarEndStr = format(endDate, 'yyyy-MM-dd');
+
+      // 1. Process Real Todos
+      // Map for blocking logic: key = "YYYY-MM-DD|Title" -> Value: { isDeleted: boolean }
+      const realTaskMap = new Map<string, { isDeleted: boolean }>();
+      
+      todos.forEach(t => {
+          realTaskMap.set(`${t.date}|${t.title}`, { isDeleted: !!t.deletedAt });
+          
+          if (t.deletedAt) return; // Don't show dots for deleted tasks
+
+          if (t.date >= calendarStartStr && t.date <= calendarEndStr) {
+              if (t.completed) {
+                  completedDatesSet.add(t.date);
+              } else {
+                  activeDates.add(t.date);
+              }
+          }
+      });
+
+      // 2. Project Virtual Recurring Todos
+      // Include deleted recurring tasks as potential sources
+      const activeRecurringTasks = todos.filter(t => 
+        t.repeat
+      );
+      
+      activeRecurringTasks.forEach(source => {
+          let pointerDate = parseLocalDate(source.date);
+          let safety = 0;
+          
+          while (safety < 1000) {
+               // Advance date
+               if (source.repeat?.type === 'daily') {
+                  pointerDate = addDays(pointerDate, source.repeat.interval);
+               } else if (source.repeat?.type === 'monthly') {
+                  pointerDate = addMonths(pointerDate, 1);
+               } else {
+                   break;
+               }
+               safety++;
+
+               const pointerDateStr = format(pointerDate, 'yyyy-MM-dd');
+
+               // Check blockage
+               const collision = realTaskMap.get(`${pointerDateStr}|${source.title}`);
+               if (collision) {
+                   // Stop projecting at ANY collision (Active or Deleted)
+                   break;
+               }
+
+               // Stop if past view
+               if (pointerDateStr > calendarEndStr) break;
+
+               // If inside view, mark as active (virtual tasks are always active)
+               if (pointerDateStr >= calendarStartStr) {
+                   activeDates.add(pointerDateStr);
+               }
+          }
+      });
+      
+      return {
+          todoDates: activeDates,
+          completedDates: completedDatesSet
+      };
+
+  }, [todos, startDate, endDate]);
+
+
+  // Check if a day has todos (Real or Virtual)
   const hasTodos = (date: Date) => {
-    // FIX: Use local format instead of toISOString (which converts to UTC and causes off-by-one errors)
     const dateStr = format(date, 'yyyy-MM-dd');
-    return todos.some(t => t.date === dateStr && !t.completed);
+    return todoDates.has(dateStr);
   };
   
   // Check if a day has completed todos only
   const hasCompletedTodosOnly = (date: Date) => {
-    // FIX: Use local format instead of toISOString
     const dateStr = format(date, 'yyyy-MM-dd');
-    const dayTodos = todos.filter(t => t.date === dateStr);
-    return dayTodos.length > 0 && dayTodos.every(t => t.completed);
+    return !todoDates.has(dateStr) && completedDates.has(dateStr);
   };
 
   // Generate Year and Month Options
@@ -56,11 +134,15 @@ export const Calendar: React.FC = () => {
   const months = Array.from({ length: 12 }, (_, i) => i);
 
   const handleYearChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setCurrentDate(setYear(currentDate, parseInt(e.target.value)));
+    const newDate = new Date(currentDate);
+    newDate.setFullYear(parseInt(e.target.value));
+    setCurrentDate(newDate);
   };
 
   const handleMonthChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setCurrentDate(setMonth(currentDate, parseInt(e.target.value)));
+    const newDate = new Date(currentDate);
+    newDate.setMonth(parseInt(e.target.value));
+    setCurrentDate(newDate);
   };
 
   return (
@@ -122,7 +204,7 @@ export const Calendar: React.FC = () => {
             const isSelected = selectedDate === dateStr;
             const isCurrentMonth = isSameMonth(day, monthStart);
             const hasActiveTasks = hasTodos(day);
-            const hasCompleted = !hasActiveTasks && hasCompletedTodosOnly(day);
+            const hasCompleted = hasCompletedTodosOnly(day);
             const isDayToday = isToday(day);
 
             return (

@@ -1,3 +1,4 @@
+
 export enum Priority {
   LOW = '低',
   MEDIUM = '中',
@@ -17,6 +18,11 @@ export interface Category {
   deletedAt?: number; // timestamp if in trash
 }
 
+export interface RepeatConfig {
+  type: 'daily' | 'monthly'; // 'daily' covers "Every X days"
+  interval: number; // For daily, it's the number of days. For monthly, implied 1.
+}
+
 export interface Todo {
   id: string;
   title: string;
@@ -29,7 +35,10 @@ export interface Todo {
   priority: Priority;
   categoryId?: string;
   tagIds?: string[]; // New field for tags
+  repeat?: RepeatConfig; // New field for recurrence
+  fromId?: string; // ID of the previous task that generated this one (for recurrence linkage)
   deletedAt?: number; // timestamp if in trash
+  isVirtual?: boolean; // UI-only flag for projected recurring tasks
 }
 
 export type CalendarViewMode = 'month' | 'week';

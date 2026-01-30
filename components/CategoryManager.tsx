@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { X, Trash2, Plus, ChevronRight, ChevronDown, Folder, CornerDownRight } from 'lucide-react';
 import { useTodoStore } from '../store/useTodoStore';
@@ -77,7 +78,7 @@ const CategoryNode: React.FC<{
 };
 
 export const CategoryManager: React.FC<CategoryManagerProps> = ({ isOpen, onClose }) => {
-  const { categories, addCategory, deleteCategory } = useTodoStore();
+  const { categories, addCategory, moveCategoryToTrash } = useTodoStore();
   const [newCategoryName, setNewCategoryName] = useState('');
   const [addingToParent, setAddingToParent] = useState<string | null>(null);
 
@@ -130,7 +131,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({ isOpen, onClos
                 allCategories={categories} 
                 level={0}
                 onAddSub={startAddSub}
-                onDelete={deleteCategory}
+                onDelete={moveCategoryToTrash}
               />
             ))}
           </div>
