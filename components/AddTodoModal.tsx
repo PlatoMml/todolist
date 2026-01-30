@@ -1,11 +1,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ChevronDown, Folder, Check, Tag as TagIcon, Plus, Repeat } from 'lucide-react';
+import { X, ChevronDown, Folder, Check, Tag as TagIcon, Plus, Repeat, Minus } from 'lucide-react';
 import { Priority, Category, Todo, Tag, RepeatConfig } from '../types';
 import { useTodoStore } from '../store/useTodoStore';
 import { Button } from './Button';
-import { getDate } from 'date-fns';
+import { getDate, setDate as setDateFns, format } from 'date-fns';
 
 interface AddTodoModalProps {
   isOpen: boolean;
@@ -14,6 +14,90 @@ interface AddTodoModalProps {
   defaultCategoryId?: string;
   todoToEdit?: Todo; // Optional: if provided, we are in Edit mode
 }
+
+// --- Internal Stepper Component for Mobile Friendly Input ---
+interface StepperProps {
+    value: number | '';
+    onChange: (val: number | '') => void;
+    min?: number;
+    max?: number;
+    suffix?: string;
+    prefix?: string;
+}
+
+const StepperInput: React.FC<StepperProps> = ({ value, onChange, min = 1, max = 999, suffix, prefix }) => {
+    const handleDecrement = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const current = typeof value === 'number' ? value : min;
+        if (current > min) {
+            onChange(current - 1);
+        }
+    };
+
+    const handleIncrement = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const current = typeof value === 'number' ? value : min;
+        if (current < max) {
+            onChange(current + 1);
+        }
+    };
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = e.target.value;
+        if (val === '') {
+            onChange('');
+            return;
+        }
+        // Only allow integers
+        if (/^\d+$/.test(val)) {
+            onChange(parseInt(val, 10));
+        }
+    };
+
+    const handleBlur = () => {
+        if (value === '' || (typeof value === 'number' && value < min)) {
+            onChange(min);
+        } else if (typeof value === 'number' && value > max) {
+            onChange(max);
+        }
+    };
+
+    return (
+        <div className="flex items-center gap-2">
+             {prefix && <span className="text-sm text-gray-600">{prefix}</span>}
+             <div className="flex items-center border border-gray-200 rounded-lg bg-gray-50 p-0.5">
+                <button
+                    type="button"
+                    onClick={handleDecrement}
+                    disabled={typeof value === 'number' && value <= min}
+                    className="p-2 text-gray-500 hover:text-primary-600 hover:bg-white rounded-md transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+                >
+                    <Minus size={16} />
+                </button>
+                <input
+                    type="tel" // Triggers numeric keypad on mobile
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={value}
+                    onChange={handleInputChange}
+                    onBlur={handleBlur}
+                    className="w-12 text-center bg-transparent border-none focus:ring-0 text-sm font-semibold text-gray-800 p-0"
+                />
+                <button
+                    type="button"
+                    onClick={handleIncrement}
+                    disabled={typeof value === 'number' && value >= max}
+                    className="p-2 text-gray-500 hover:text-primary-600 hover:bg-white rounded-md transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+                >
+                    <Plus size={16} />
+                </button>
+             </div>
+             {suffix && <span className="text-sm text-gray-600">{suffix}</span>}
+        </div>
+    );
+};
 
 const getTodayDate = () => {
   const date = new Date();
@@ -48,7 +132,9 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
   
   // Repeat State
   const [repeatType, setRepeatType] = useState<'none' | 'daily' | 'monthly'>('none');
-  const [repeatInterval, setRepeatInterval] = useState<number>(1);
+  const [repeatInterval, setRepeatInterval] = useState<number | ''>(1);
+  const [repeatMonthlyDay, setRepeatMonthlyDay] = useState<number | ''>(1);
+
   const [isRepeatDropdownOpen, setIsRepeatDropdownOpen] = useState(false);
   const repeatDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -105,6 +191,9 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
             setRepeatType('none');
             setRepeatInterval(1);
         }
+        // Initialize Monthly day from existing date
+        const d = parseLocalDate(todoToEdit.date);
+        setRepeatMonthlyDay(getDate(d));
 
       } else {
         // Create Mode
@@ -112,11 +201,17 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
         setDescription('');
         setPriority(Priority.MEDIUM);
         setCategoryId(defaultCategoryId || '');
-        setDate(defaultDate || getTodayDate());
+        
+        const initDate = defaultDate || getTodayDate();
+        setDate(initDate);
         setTime('');
         setSelectedTagIds([]);
         setRepeatType('none');
         setRepeatInterval(1);
+        
+        // Initialize Monthly day from default date
+        const d = parseLocalDate(initDate);
+        setRepeatMonthlyDay(getDate(d));
       }
       setIsCategoryDropdownOpen(false);
       setIsTagDropdownOpen(false);
@@ -132,7 +227,18 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
     if (!title.trim()) return;
     
     // Validate date (must not be empty)
-    const finalDate = date || getTodayDate();
+    let finalDate = date || getTodayDate();
+
+    // Special Handling for Monthly Repeat Day Change
+    // If user selected "Monthly on Day X", and X is different from the date's day, update date.
+    if (repeatType === 'monthly' && typeof repeatMonthlyDay === 'number') {
+        const currentD = parseLocalDate(finalDate);
+        if (getDate(currentD) !== repeatMonthlyDay) {
+            // Set the day. Note: setDateFns handles month overflow (e.g. Feb 30 -> Mar 2), which is generally acceptable behavior or we'd need complex validation.
+            const newDateObj = setDateFns(currentD, repeatMonthlyDay);
+            finalDate = format(newDateObj, 'yyyy-MM-dd');
+        }
+    }
 
     // Construct Repeat Config
     let repeatConfig: RepeatConfig | undefined = undefined;
@@ -156,25 +262,21 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
 
     if (todoToEdit) {
         if (todoToEdit.isVirtual) {
-            // If it's a virtual task, we need to MATERIALIZE it (create it in the chain)
-            // ID format: `virtual-${source.id}-${dateStr}`. UUID is 36 chars.
             if (todoToEdit.id.startsWith('virtual-')) {
                 const sourceId = todoToEdit.id.substring(8, 8 + 36); 
                 materializeVirtualTodo(sourceId, todoToEdit.date, todoData);
             }
         } else {
-            // Normal update
             updateTodo(todoToEdit.id, todoData);
         }
     } else {
-      // Create new
       addTodo(todoData);
     }
 
     onClose();
   };
 
-  // Tag Handlers
+  // ... (Tag Handlers and Category Flattening Logic remain unchanged) ...
   const handleTagInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       setTagInput(e.target.value);
       setIsTagDropdownOpen(true);
@@ -203,8 +305,6 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
       !selectedTagIds.includes(t.id)
   );
 
-
-  // Flatten categories with depth for display
   const getFlattenedCategories = (parentId: string | null = null, depth = 0): { cat: Category, depth: number }[] => {
     const children = categories.filter(c => c.parentId === parentId && !c.deletedAt);
     let result: { cat: Category, depth: number }[] = [];
@@ -222,8 +322,17 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
     ? categories.find(c => c.id === categoryId)?.name 
     : '无分类';
 
-  // Get current date day for monthly display
-  const currentDayOfMonth = date ? getDate(parseLocalDate(date)) : new Date().getDate();
+  // Determine current day number for display label
+  const displayMonthDay = typeof repeatMonthlyDay === 'number' ? repeatMonthlyDay : (date ? getDate(parseLocalDate(date)) : new Date().getDate());
+
+  // Handle Date Change -> sync monthly day default
+  const handleDateChange = (newDateStr: string) => {
+      setDate(newDateStr);
+      if (newDateStr) {
+          const d = parseLocalDate(newDateStr);
+          setRepeatMonthlyDay(getDate(d));
+      }
+  };
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
@@ -268,7 +377,7 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
               <input
                 type="date"
                 value={date}
-                onChange={(e) => setDate(e.target.value)}
+                onChange={(e) => handleDateChange(e.target.value)}
                 className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm"
                 required
               />
@@ -289,7 +398,7 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
             </div>
           </div>
 
-          {/* Repeat Configuration */}
+          {/* Repeat Configuration (REFACTORED) */}
           <div className="relative" ref={repeatDropdownRef}>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
                 重复待办
@@ -306,58 +415,71 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
                     <span className={repeatType !== 'none' ? 'text-gray-900' : 'text-gray-500'}>
                         {repeatType === 'none' && '不重复'}
                         {repeatType === 'daily' && `每 ${repeatInterval} 天`}
-                        {repeatType === 'monthly' && `每月 ${currentDayOfMonth} 日`}
+                        {repeatType === 'monthly' && `每月 ${displayMonthDay} 日`}
                     </span>
                  </div>
                  <ChevronDown size={16} className={`text-gray-400 transition-transform ${isRepeatDropdownOpen ? 'rotate-180' : ''}`} />
               </div>
 
               {isRepeatDropdownOpen && (
-                 <div className="absolute top-full left-0 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100 p-2">
+                 <div className="absolute top-full left-0 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100 p-2 space-y-1">
+                     
+                     {/* No Repeat */}
                      <button
                         type="button"
                         onClick={() => { setRepeatType('none'); setIsRepeatDropdownOpen(false); }}
-                        className={`w-full text-left px-3 py-2 rounded text-sm ${repeatType === 'none' ? 'bg-primary-50 text-primary-700' : 'text-gray-700 hover:bg-gray-50'}`}
+                        className={`w-full text-left px-3 py-2.5 rounded text-sm transition-colors ${repeatType === 'none' ? 'bg-primary-50 text-primary-700 font-medium' : 'text-gray-700 hover:bg-gray-50'}`}
                      >
                          不重复
                      </button>
-                     <div className="h-px bg-gray-100 my-1"></div>
                      
-                     {/* Daily Option with Input */}
-                     <div className={`rounded p-2 ${repeatType === 'daily' ? 'bg-primary-50' : 'hover:bg-gray-50'}`}>
-                         <div className="flex items-center justify-between mb-1">
-                            <button
-                                type="button"
-                                onClick={() => setRepeatType('daily')}
-                                className={`text-sm text-left flex-1 ${repeatType === 'daily' ? 'text-primary-700 font-medium' : 'text-gray-700'}`}
-                            >
-                                每 X 天
-                            </button>
+                     {/* Daily Option */}
+                     <div 
+                        onClick={() => setRepeatType('daily')}
+                        className={`rounded-lg px-3 py-2 cursor-pointer transition-colors ${repeatType === 'daily' ? 'bg-primary-50 border border-primary-100' : 'hover:bg-gray-50 border border-transparent'}`}
+                     >
+                         <div className="flex items-center justify-between">
+                            <span className={`text-sm ${repeatType === 'daily' ? 'text-primary-700 font-medium' : 'text-gray-700'}`}>
+                                每日 / 每 N 天
+                            </span>
                          </div>
                          {repeatType === 'daily' && (
-                             <div className="flex items-center gap-2 mt-1">
-                                 <span className="text-xs text-gray-500">每</span>
-                                 <input 
-                                    type="number" 
-                                    min="1" 
-                                    max="365"
+                             <div className="mt-2 pl-1">
+                                <StepperInput 
+                                    prefix="每"
+                                    suffix="天"
                                     value={repeatInterval}
-                                    onChange={(e) => setRepeatInterval(Math.max(1, parseInt(e.target.value) || 1))}
-                                    className="w-16 px-2 py-1 text-sm border border-primary-200 rounded focus:outline-none focus:border-primary-500 text-center"
-                                 />
-                                 <span className="text-xs text-gray-500">天</span>
+                                    onChange={setRepeatInterval}
+                                    min={1}
+                                    max={365}
+                                />
                              </div>
                          )}
                      </div>
 
                      {/* Monthly Option */}
-                     <button
-                        type="button"
-                        onClick={() => { setRepeatType('monthly'); setIsRepeatDropdownOpen(false); }}
-                        className={`w-full text-left px-3 py-2 rounded text-sm mt-1 ${repeatType === 'monthly' ? 'bg-primary-50 text-primary-700' : 'text-gray-700 hover:bg-gray-50'}`}
+                     <div 
+                        onClick={() => setRepeatType('monthly')}
+                        className={`rounded-lg px-3 py-2 cursor-pointer transition-colors ${repeatType === 'monthly' ? 'bg-primary-50 border border-primary-100' : 'hover:bg-gray-50 border border-transparent'}`}
                      >
-                         每月 {currentDayOfMonth} 日
-                     </button>
+                         <div className="flex items-center justify-between">
+                            <span className={`text-sm ${repeatType === 'monthly' ? 'text-primary-700 font-medium' : 'text-gray-700'}`}>
+                                每月重复
+                            </span>
+                         </div>
+                         {repeatType === 'monthly' && (
+                             <div className="mt-2 pl-1">
+                                <StepperInput 
+                                    prefix="每月"
+                                    suffix="日"
+                                    value={repeatMonthlyDay}
+                                    onChange={setRepeatMonthlyDay}
+                                    min={1}
+                                    max={31}
+                                />
+                             </div>
+                         )}
+                     </div>
                  </div>
               )}
           </div>
