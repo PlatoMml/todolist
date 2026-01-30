@@ -1,12 +1,13 @@
 
 import React, { useState } from 'react';
 import { Todo, Priority } from '../types';
-import { Trash2, Edit2, CalendarClock, Check, Undo2, Tag, Repeat } from 'lucide-react';
+import { Trash2, CalendarClock, Check, Undo2, Tag, Repeat } from 'lucide-react';
 import { useTodoStore } from '../store/useTodoStore';
 import { format, isToday, isTomorrow, isValid } from 'date-fns';
 import zhCN from 'date-fns/locale/zh-CN';
 import { AddTodoModal } from './AddTodoModal';
 import { ConfirmModal } from './ConfirmModal';
+import { DeleteRepeatModal } from './DeleteRepeatModal';
 
 interface TodoItemProps {
   todo: Todo;
@@ -19,10 +20,11 @@ const parseLocalDate = (dateStr: string) => {
 };
 
 export const TodoItem: React.FC<TodoItemProps> = ({ todo }) => {
-  const { toggleTodo, toggleVirtualTodo, deleteVirtualTodo, moveTodoToTrash, restoreTodo, permanentlyDeleteTodo, categories, tags, viewMode } = useTodoStore();
+  const { toggleTodo, toggleVirtualTodo, deleteVirtualTodo, moveTodoToTrash, deleteTodoSeries, updateTodo, restoreTodo, permanentlyDeleteTodo, categories, tags, viewMode } = useTodoStore();
   const [isHovered, setIsHovered] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeleteRepeatModalOpen, setIsDeleteRepeatModalOpen] = useState(false);
 
   const priorityColors = {
     [Priority.HIGH]: 'bg-red-50 text-red-600 border-red-200',
@@ -73,13 +75,34 @@ export const TodoItem: React.FC<TodoItemProps> = ({ todo }) => {
       if (isTrashView) {
           setIsDeleteModalOpen(true);
       } else {
-          if (isVirtual && todo.id.startsWith('virtual-')) {
-               // Extract UUID. "virtual-" is 8 chars.
-               const sourceId = todo.id.substring(8, 8 + 36); 
-               deleteVirtualTodo(sourceId, todo.date);
+          // If repeating (has repeat config OR is virtual), show Repeat Delete Modal
+          if (todo.repeat || isVirtual) {
+              setIsDeleteRepeatModalOpen(true);
           } else {
               moveTodoToTrash(todo.id);
           }
+      }
+  };
+  
+  const handleDeleteRepeatOne = () => {
+      if (isVirtual && todo.id.startsWith('virtual-')) {
+           // Extract UUID. "virtual-" is 8 chars.
+           const sourceId = todo.id.substring(8, 8 + 36); 
+           deleteVirtualTodo(sourceId, todo.date);
+      } else {
+          moveTodoToTrash(todo.id);
+      }
+  };
+
+  const handleDeleteRepeatAll = () => {
+      if (isVirtual && todo.id.startsWith('virtual-')) {
+           const sourceId = todo.id.substring(8, 8 + 36); 
+           // For virtual task "Delete All Future", we remove repeat from source
+           // We do NOT delete the source task itself, just stop it from repeating.
+           updateTodo(sourceId, { repeat: undefined });
+      } else {
+          // For real task "Delete All Future", we delete the series (source + future)
+          deleteTodoSeries(todo.id);
       }
   };
 
@@ -88,18 +111,20 @@ export const TodoItem: React.FC<TodoItemProps> = ({ todo }) => {
       
       if (isVirtual) {
           // Virtual logic: "virtual-{sourceId}-{date}"
-          // We need to parse sourceId.
-          // Format is fixed in TodoList as `virtual-${source.id}-${selectedDate}`
-          // uuid is 36 chars.
           if (todo.id.startsWith('virtual-')) {
-             // Extract UUID. "virtual-" is 8 chars.
              const sourceId = todo.id.substring(8, 8 + 36); 
-             // Toggle it
+             // Toggle it (Completes it)
              toggleVirtualTodo(sourceId, todo.date);
           }
       } else {
           toggleTodo(todo.id);
       }
+  };
+
+  const handleContentClick = () => {
+      if (isTrashView) return;
+      // Allow clicking virtual tasks to view/edit (opens Modal)
+      setIsEditModalOpen(true);
   };
 
   return (
@@ -116,19 +141,26 @@ export const TodoItem: React.FC<TodoItemProps> = ({ todo }) => {
         onMouseLeave={() => setIsHovered(false)}
         >
         
-        {/* Status Indicator (Check or Dot) */}
+        {/* Status Indicator (Check or Dot) - ONLY WAY TO COMPLETE */}
         <div className="flex-shrink-0 flex items-center justify-center w-8">
             {isTrashView ? (
                 <div className="w-1.5 h-1.5 rounded-full bg-gray-300"></div>
             ) : (
                 todo.completed ? (
-                        <div className="text-green-500"><Check size={18} /></div>
+                        <div 
+                            className="text-green-500 cursor-pointer transition-transform active:scale-90"
+                            onClick={(e) => { e.stopPropagation(); handleToggle(); }}
+                            title="标记为未完成"
+                        >
+                            <Check size={18} />
+                        </div>
                 ) : (
                     <div 
-                        className={`w-4 h-4 rounded-full border-2 flex items-center justify-center cursor-pointer transition-colors ${
+                        className={`w-4 h-4 rounded-full border-2 flex items-center justify-center cursor-pointer transition-colors active:scale-90 ${
                             isVirtual ? 'border-primary-300 hover:bg-primary-50' : 'border-gray-300 hover:border-primary-500'
                         }`}
                         onClick={(e) => { e.stopPropagation(); handleToggle(); }}
+                        title="标记为完成"
                     >
                          {isVirtual && <div className="w-1.5 h-1.5 rounded-full bg-primary-200"></div>}
                     </div>
@@ -136,11 +168,11 @@ export const TodoItem: React.FC<TodoItemProps> = ({ todo }) => {
             )}
         </div>
 
-        {/* Content Area */}
+        {/* Content Area - CLICK TO VIEW/EDIT */}
         <div 
             className={`flex-1 min-w-0 select-none ${!isTrashView ? 'cursor-pointer' : ''}`}
-            onClick={() => !isTrashView && handleToggle()}
-            title={!isTrashView ? (todo.completed ? "标记为未完成" : "标记为完成") : undefined}
+            onClick={handleContentClick}
+            title={!isTrashView ? "查看/编辑详情" : undefined}
         >
             <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <h3 className={`text-sm font-medium truncate transition-all mr-1 ${
@@ -226,26 +258,16 @@ export const TodoItem: React.FC<TodoItemProps> = ({ todo }) => {
                         </button>
                     </>
                 ) : (
-                    !isVirtual ? (
-                        <>
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); setIsEditModalOpen(true); }}
-                                className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
-                                title="编辑"
-                            >
-                                <Edit2 size={16} />
-                            </button>
-                            <button 
-                                onClick={handleDeleteClick}
-                                className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                title="移至回收站"
-                            >
-                                <Trash2 size={16} />
-                            </button>
-                        </>
-                    ) : (
-                        <span className="text-[10px] text-gray-400 italic px-1">点击创建</span>
-                    )
+                    <>
+                        {/* Edit Button Removed (Use Content Click) */}
+                        <button 
+                            onClick={handleDeleteClick}
+                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title="移至回收站"
+                        >
+                            <Trash2 size={16} />
+                        </button>
+                    </>
                 )}
             </div>
         </div>
@@ -263,6 +285,13 @@ export const TodoItem: React.FC<TodoItemProps> = ({ todo }) => {
             onConfirm={() => permanentlyDeleteTodo(todo.id)}
             title="永久删除任务"
             message="确定要永久删除这个任务吗？此操作无法撤销。"
+        />
+
+        <DeleteRepeatModal
+            isOpen={isDeleteRepeatModalOpen}
+            onClose={() => setIsDeleteRepeatModalOpen(false)}
+            onDeleteOne={handleDeleteRepeatOne}
+            onDeleteAll={handleDeleteRepeatAll}
         />
     </>
   );

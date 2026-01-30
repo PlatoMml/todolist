@@ -271,6 +271,8 @@ export const TodoList: React.FC = () => {
                         id: `virtual-${source.id}-${dateStr}`,
                         date: dateStr,
                         isVirtual: true,
+                        completed: false,      // FIX: Ensure projected tasks are active
+                        deletedAt: undefined,  // FIX: Ensure projected tasks are NOT deleted (even if source was)
                         // keep original created/updated
                     });
                     break; // Found the projection for this view

@@ -36,7 +36,7 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
   defaultCategoryId, 
   todoToEdit 
 }) => {
-  const { addTodo, updateTodo, categories, tags, addTag } = useTodoStore();
+  const { addTodo, updateTodo, materializeVirtualTodo, categories, tags, addTag } = useTodoStore();
   
   // State
   const [title, setTitle] = useState('');
@@ -143,9 +143,7 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
         };
     }
 
-    if (todoToEdit) {
-      // Update existing
-      updateTodo(todoToEdit.id, {
+    const todoData = {
         title,
         description,
         priority,
@@ -154,19 +152,23 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
         categoryId: categoryId || undefined,
         tagIds: selectedTagIds,
         repeat: repeatConfig,
-      });
+    };
+
+    if (todoToEdit) {
+        if (todoToEdit.isVirtual) {
+            // If it's a virtual task, we need to MATERIALIZE it (create it in the chain)
+            // ID format: `virtual-${source.id}-${dateStr}`. UUID is 36 chars.
+            if (todoToEdit.id.startsWith('virtual-')) {
+                const sourceId = todoToEdit.id.substring(8, 8 + 36); 
+                materializeVirtualTodo(sourceId, todoToEdit.date, todoData);
+            }
+        } else {
+            // Normal update
+            updateTodo(todoToEdit.id, todoData);
+        }
     } else {
       // Create new
-      addTodo({
-        title,
-        description,
-        priority,
-        date: finalDate,
-        time: time || undefined,
-        categoryId: categoryId || undefined,
-        tagIds: selectedTagIds,
-        repeat: repeatConfig,
-      });
+      addTodo(todoData);
     }
 
     onClose();
