@@ -21,7 +21,9 @@ const parseLocalDate = (dateStr: string) => {
 
 export const TodoItem: React.FC<TodoItemProps> = ({ todo }) => {
   const { toggleTodo, toggleVirtualTodo, deleteVirtualTodo, moveTodoToTrash, deleteTodoSeries, updateTodo, restoreTodo, permanentlyDeleteTodo, categories, tags, viewMode } = useTodoStore();
-  const [isHovered, setIsHovered] = useState(false);
+  
+  // const [isHovered, setIsHovered] = useState(false);
+  
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleteRepeatModalOpen, setIsDeleteRepeatModalOpen] = useState(false);
@@ -137,8 +139,6 @@ export const TodoItem: React.FC<TodoItemProps> = ({ todo }) => {
                 ? 'bg-white border-primary-100 border-dashed hover:border-primary-300' // Virtual Style
                 : 'bg-white border-gray-200 shadow-sm hover:shadow-md hover:border-primary-200'
         } ${isTrashView ? 'opacity-75 bg-gray-50' : ''}`}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
         >
         
         {/* Status Indicator (Check or Dot) - ONLY WAY TO COMPLETE */}
@@ -224,7 +224,7 @@ export const TodoItem: React.FC<TodoItemProps> = ({ todo }) => {
             )}
         </div>
 
-        {/* Actions */}
+        {/* Actions - REVERTED: Hidden by default, visible only on hover (desktop). */}
         <div className="flex items-center gap-2 shrink-0">
             {/* Display Creation Date */}
             {!isTrashView && !isVirtual && (
@@ -239,7 +239,8 @@ export const TodoItem: React.FC<TodoItemProps> = ({ todo }) => {
                 </span>
             )}
             
-            <div className={`flex items-center gap-1 transition-opacity duration-200 ${isHovered ? 'opacity-100' : 'opacity-0 md:opacity-0'}`}>
+            {/* Reverted opacity: opacity-0 group-hover:opacity-100 */}
+            <div className={`flex items-center gap-1 transition-opacity duration-200 opacity-0 group-hover:opacity-100`}>
                 {isTrashView ? (
                     <>
                         <button 
