@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Todo, Priority } from '../types';
-import { Trash2, CalendarClock, Check, Undo2, Tag, Repeat, Edit2, MoreVertical } from 'lucide-react';
+import { Trash2, CalendarClock, Check, Undo2, Tag, Repeat, Edit2, MoreVertical, CheckSquare } from 'lucide-react';
 import { useTodoStore } from '../store/useTodoStore';
 import { format, isToday, isTomorrow, isValid } from 'date-fns';
 import zhCN from 'date-fns/locale/zh-CN';
@@ -16,6 +16,7 @@ interface TodoItemProps {
   isSelectionMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
+  onLongPress?: () => void; // New prop for entering selection mode
 }
 
 // Helper to parse YYYY-MM-DD to local Date object
@@ -28,7 +29,8 @@ export const TodoItem: React.FC<TodoItemProps> = ({
     todo, 
     isSelectionMode = false, 
     isSelected = false, 
-    onToggleSelect 
+    onToggleSelect,
+    onLongPress
 }) => {
   const { toggleTodo, toggleVirtualTodo, deleteVirtualTodo, moveTodoToTrash, deleteTodoSeries, updateTodo, restoreTodo, permanentlyDeleteTodo, categories, tags, viewMode } = useTodoStore();
   
@@ -153,7 +155,10 @@ export const TodoItem: React.FC<TodoItemProps> = ({
   // Setup Long Press
   const longPressProps = useLongPress(
     () => {
-        if (!isSelectionMode) setIsActionSheetOpen(true);
+        if (!isSelectionMode) {
+             // CHANGE: Enter selection mode on long press
+             if (onLongPress) onLongPress();
+        }
     },
     handleContentClick,
     { shouldPreventDefault: true }
@@ -185,6 +190,14 @@ export const TodoItem: React.FC<TodoItemProps> = ({
              icon: <Check size={20}/>, 
              onClick: handleToggle 
          });
+         // Add explicit option to enter selection mode from menu as well
+         if (onLongPress) {
+            opts.push({
+                label: '多选',
+                icon: <CheckSquare size={20}/>,
+                onClick: () => onLongPress()
+            });
+         }
          opts.push({ 
              label: '删除任务', 
              icon: <Trash2 size={20}/>, 
@@ -193,7 +206,7 @@ export const TodoItem: React.FC<TodoItemProps> = ({
          });
     }
     return opts;
-  }, [isTrashView, todo, restoreTodo, handleDeleteClick, handleToggle]);
+  }, [isTrashView, todo, restoreTodo, handleDeleteClick, handleToggle, onLongPress]);
 
 
   return (

@@ -316,20 +316,48 @@ export const TodoList: React.FC = () => {
 
   const handleSmartRestoreCategory = (cat: Category) => { const parent = cat.parentId ? categories.find(p => p.id === cat.parentId) : null; if (parent && parent.deletedAt) { updateCategory(cat.id, { parentId: null, deletedAt: undefined }); } else { restoreCategory(cat.id); } };
   const handleSmartRestoreTodo = (todo: Todo) => { const cat = todo.categoryId ? categories.find(c => c.id === todo.categoryId) : null; if (cat && cat.deletedAt) { updateTodo(todo.id, { categoryId: undefined, deletedAt: undefined }); } else { restoreTodo(todo.id); } };
+  
+  // Logic to display the View Title (Simplified for Date view)
   const viewTitle = useMemo(() => {
     if (viewMode === 'trash') return '回收站';
-    if (viewMode === 'date' && selectedDate) { const date = parseLocalDate(selectedDate); if (isToday(date)) return '今天'; if (isTomorrow(date)) return '明天'; return format(date, 'yyyy年M月d日', { locale: zhCN }); }
+    if (viewMode === 'date' && selectedDate) { 
+        const date = parseLocalDate(selectedDate); 
+        if (isToday(date)) return '今天'; 
+        if (isTomorrow(date)) return '明天'; 
+        return format(date, 'M月d日', { locale: zhCN }); 
+    }
     if (viewMode === 'category' && selectedCategoryId) { const cat = categories.find(c => c.id === selectedCategoryId); return cat ? cat.name : '未知分类'; }
     if (viewMode === 'upcoming') { return `未来 ${upcomingDays} 天待办`; }
     return '所有任务';
   }, [viewMode, selectedDate, selectedCategoryId, categories, upcomingDays]);
   
+  // Logic to display the Subtitle (Added Weekday for Date view)
+  const viewSubtitle = useMemo(() => {
+      if (viewMode === 'trash') return '已删除的项目';
+      
+      const countText = `${filteredTodos.length} 个任务`;
+      
+      if (viewMode === 'date' && selectedDate) {
+          const date = parseLocalDate(selectedDate);
+          const weekDay = format(date, 'EEEE', { locale: zhCN }); // e.g., "星期三"
+          return `${weekDay} · ${countText}`;
+      }
+      
+      return countText;
+  }, [viewMode, selectedDate, filteredTodos.length]);
+  
+  // Logic to display the Icon (Reverted to Standard Static Icons)
   const viewIcon = useMemo(() => {
-      if (viewMode === 'trash') return <Recycle className="text-red-500" size={24} />;
-      if (viewMode === 'all') return <Layers className="text-primary-500" size={24} />;
-      if (viewMode === 'category') return <FolderOpen className="text-primary-500" size={24} />;
-      if (viewMode === 'upcoming') return <CalendarRange className="text-primary-500" size={24} />;
-      return <CalendarIcon className="text-primary-500" size={24} />;
+      const iconClass = "text-primary-600";
+      const wrapperClass = "p-2 bg-primary-50 rounded-lg shrink-0";
+      
+      if (viewMode === 'trash') return <div className="p-2 bg-red-50 rounded-lg shrink-0"><Recycle className="text-red-600" size={24} /></div>;
+      if (viewMode === 'all') return <div className={wrapperClass}><Layers className={iconClass} size={24} /></div>;
+      if (viewMode === 'category') return <div className={wrapperClass}><FolderOpen className={iconClass} size={24} /></div>;
+      if (viewMode === 'upcoming') return <div className={wrapperClass}><CalendarRange className={iconClass} size={24} /></div>;
+      
+      // Default (Date view)
+      return <div className={wrapperClass}><CalendarIcon className={iconClass} size={24} /></div>;
   }, [viewMode]);
 
   const sortOptions: { value: SortBy; label: string; icon: React.ReactNode }[] = [ { value: 'date', label: '待办日期', icon: <CalendarDays size={14} /> }, { value: 'title', label: '任务名称', icon: <Type size={14} /> }, { value: 'createdAt', label: '创建时间', icon: <Clock size={14} /> }, { value: 'updatedAt', label: '修改时间', icon: <History size={14} /> }, ];
@@ -348,6 +376,11 @@ export const TodoList: React.FC = () => {
       } else {
           setSelectedIds(new Set(filteredTodos.map(t => t.id)));
       }
+  };
+  
+  const handleEnterSelectionMode = (initialId: string) => {
+      setIsSelectionMode(true);
+      setSelectedIds(new Set([initialId]));
   };
 
   const batchMarkComplete = () => {
@@ -423,16 +456,25 @@ export const TodoList: React.FC = () => {
             // Normal Header
             <>
                 <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-lg ${viewMode === 'trash' ? 'bg-red-50' : 'bg-primary-50'}`}>{viewIcon}</div>
-                        <div><h2 className="text-xl font-bold text-gray-900">{viewTitle}</h2><p className="text-gray-500 text-xs mt-0.5">{viewMode === 'trash' ? '已删除的项目' : `${filteredTodos.length} 个任务`}</p></div>
+                    <div className="flex items-center gap-3 overflow-hidden">
+                        {/* Standard Icon */}
+                        {viewIcon}
+                        
+                        <div className="min-w-0 flex flex-col justify-center">
+                            {/* Improved date display: smaller font on mobile, whitespace-nowrap, truncate if needed */}
+                            <h2 className="text-lg sm:text-xl font-bold text-gray-900 truncate leading-tight whitespace-nowrap">
+                                {viewTitle}
+                            </h2>
+                            <p className="text-gray-500 text-xs mt-0.5 truncate">
+                                {viewSubtitle}
+                            </p>
+                        </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 shrink-0 ml-2">
                         {viewMode !== 'trash' && (
                             <>
-                                <Button variant="secondary" className="px-3 h-9 text-xs font-medium text-gray-600" onClick={() => { setIsSelectionMode(true); }} title="进入多选模式">
-                                    多选
-                                </Button>
+                                {/* REMOVED: "Select" Button */}
+                                
                                 <div className="relative" id="sort-menu-container"><Button variant="secondary" className="px-3 h-9" onClick={() => setIsSortMenuOpen(!isSortMenuOpen)} title="排序"><ArrowUpDown size={16} className="text-gray-500" /></Button>{isSortMenuOpen && (<div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200"><div className="p-1">{sortOptions.map(option => (<button key={option.value} onClick={() => { setSortBy(option.value); setIsSortMenuOpen(false); }} className={`w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-colors ${sortBy === option.value ? 'bg-primary-50 text-primary-700' : 'text-gray-700 hover:bg-gray-50'}`}><div className="flex items-center gap-2">{option.icon}<span>{option.label}</span></div>{sortBy === option.value && <Check size={14} />}</button>))}<div className="h-px bg-gray-100 my-1"></div><div className="flex bg-gray-50 p-1 rounded-lg mx-2 mb-2"><button onClick={() => setSortDirection('asc')} className={`flex-1 text-xs py-1.5 rounded-md ${sortDirection === 'asc' ? 'bg-white shadow-sm text-primary-700' : 'text-gray-500'}`}>升序</button><button onClick={() => setSortDirection('desc')} className={`flex-1 text-xs py-1.5 rounded-md ${sortDirection === 'desc' ? 'bg-white shadow-sm text-primary-700' : 'text-gray-500'}`}>降序</button></div></div></div>)}</div>
                                 <Button onClick={() => setIsModalOpen(true)} className="rounded-lg px-4 py-2 flex items-center gap-2 shadow-sm h-9"><Plus size={18} /><span className="text-sm hidden sm:inline">新建</span></Button>
                             </>
@@ -468,6 +510,7 @@ export const TodoList: React.FC = () => {
                     isSelectionMode={isSelectionMode}
                     isSelected={selectedIds.has(todo.id)}
                     onToggleSelect={() => handleToggleSelect(todo.id)}
+                    onLongPress={() => handleEnterSelectionMode(todo.id)} // Pass handler for long press
                 />
             ))) : (<div className="h-full flex flex-col items-center justify-center text-gray-400 pb-20"><div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4"><ListTodo size={24} className="text-gray-300" /></div><p className="text-sm font-medium">列表为空。</p><Button variant="ghost" size="sm" onClick={() => setIsModalOpen(true)} className="mt-2 text-primary-600">创建第一个任务</Button></div>)
         )}
