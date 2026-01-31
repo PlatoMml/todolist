@@ -518,19 +518,19 @@ export const TodoList: React.FC = () => {
 
       {/* Batch Actions Footer */}
       {isSelectionMode && selectedIds.size > 0 && (
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-white shadow-2xl rounded-full border border-gray-200 px-6 py-3 flex items-center gap-6 animate-in slide-in-from-bottom-10 fade-in duration-300 z-50">
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-white shadow-2xl rounded-full border border-gray-200 px-5 sm:px-6 py-3 flex items-center gap-4 sm:gap-6 animate-in slide-in-from-bottom-10 fade-in duration-300 z-50">
                <button onClick={batchMarkComplete} className="flex flex-col items-center gap-1 text-gray-500 hover:text-green-600 transition-colors">
                    <div className="p-1 rounded-full bg-gray-100 hover:bg-green-50"><Check size={20} /></div>
-                   <span className="text-[10px] font-medium">标记完成</span>
+                   <span className="text-[10px] font-medium whitespace-nowrap">标记完成</span>
                </button>
                <button onClick={batchMarkIncomplete} className="flex flex-col items-center gap-1 text-gray-500 hover:text-orange-600 transition-colors">
                    <div className="p-1 rounded-full bg-gray-100 hover:bg-orange-50"><Undo2 size={20} /></div>
-                   <span className="text-[10px] font-medium">标记未完成</span>
+                   <span className="text-[10px] font-medium whitespace-nowrap">标记未完成</span>
                </button>
                <div className="w-px h-8 bg-gray-200"></div>
                <button onClick={() => setIsBatchDeleteModalOpen(true)} className="flex flex-col items-center gap-1 text-gray-500 hover:text-red-600 transition-colors">
                    <div className="p-1 rounded-full bg-gray-100 hover:bg-red-50"><Trash2 size={20} /></div>
-                   <span className="text-[10px] font-medium">删除</span>
+                   <span className="text-[10px] font-medium whitespace-nowrap">删除</span>
                </button>
           </div>
       )}
