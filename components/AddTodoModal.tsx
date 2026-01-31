@@ -1,11 +1,13 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ChevronDown, Folder, Check, Tag as TagIcon, Plus, Repeat, Minus } from 'lucide-react';
+import { X, ChevronDown, Folder, Check, Tag as TagIcon, Plus, Repeat, Minus, Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Priority, Category, Todo, Tag, RepeatConfig } from '../types';
 import { useTodoStore } from '../store/useTodoStore';
 import { Button } from './Button';
-import { getDate, setDate as setDateFns, format } from 'date-fns';
+import { getDate, setDate as setDateFns, format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, isToday } from 'date-fns';
+import zhCN from 'date-fns/locale/zh-CN';
+import { Solar } from 'lunar-javascript';
 
 interface AddTodoModalProps {
   isOpen: boolean;
@@ -14,6 +16,68 @@ interface AddTodoModalProps {
   defaultCategoryId?: string;
   todoToEdit?: Todo; // Optional: if provided, we are in Edit mode
 }
+
+// Helper to get Lunar Date Display String (Copied from Calendar.tsx for consistency)
+const getLunarDisplay = (date: Date): { text: string; isJieQi: boolean; isFestival: boolean } => {
+    try {
+        const solar = Solar.fromYmd(date.getFullYear(), date.getMonth() + 1, date.getDate());
+        const lunar = solar.getLunar();
+        
+        // 1. Check for Lunar Festivals (Highest Priority) - e.g. 春节, 中秋, 除夕
+        const lunarFestivals = lunar.getFestivals();
+        if (lunarFestivals && lunarFestivals.length > 0) {
+            let name = lunarFestivals[0];
+            // Simplify common names for compact display
+            const map: Record<string, string> = {
+                '春节': '春节', '元宵节': '元宵', '端午节': '端午', '中秋节': '中秋', 
+                '重阳节': '重阳', '腊八节': '腊八', '除夕': '除夕', '小年': '小年',
+                '七夕节': '七夕'
+            };
+            return { 
+                text: map[name] || name.replace('节', ''), 
+                isJieQi: false, 
+                isFestival: true 
+            };
+        }
+
+        // 2. Check for Solar Festivals - e.g. 元旦, 国庆
+        const solarFestivals = solar.getFestivals();
+        if (solarFestivals && solarFestivals.length > 0) {
+             let name = solarFestivals[0];
+             // Filter generally recognized holidays to avoid clutter
+             const map: Record<string, string> = {
+                 '元旦': '元旦', '劳动节': '劳动', '国庆节': '国庆', 
+                 '妇女节': '妇女', '儿童节': '儿童', '建军节': '建军',
+                 '教师节': '教师'
+             };
+             if (map[name] || name.length <= 3) {
+                 return { 
+                    text: map[name] || name, 
+                    isJieQi: false, 
+                    isFestival: true 
+                 };
+             }
+        }
+
+        // 3. Check for Solar Term (JieQi)
+        const jieqi = lunar.getJieQi();
+        if (jieqi) {
+            return { text: jieqi, isJieQi: true, isFestival: false };
+        }
+
+        // 4. Check for Lunar Day
+        const day = lunar.getDay();
+        const month = lunar.getMonthInChinese();
+        
+        if (day === 1) {
+            return { text: `${month}月`, isJieQi: false, isFestival: false };
+        }
+
+        return { text: lunar.getDayInChinese(), isJieQi: false, isFestival: false };
+    } catch (e) {
+        return { text: '', isJieQi: false, isFestival: false };
+    }
+};
 
 // --- Internal Stepper Component for Mobile Friendly Input ---
 interface StepperProps {
@@ -65,16 +129,19 @@ const StepperInput: React.FC<StepperProps> = ({ value, onChange, min = 1, max = 
     };
 
     return (
-        <div className="flex items-center gap-2">
-             {prefix && <span className="text-sm text-gray-600">{prefix}</span>}
-             <div className="flex items-center border border-gray-200 rounded-lg bg-gray-50 p-0.5">
+        <div className="flex items-center gap-3 select-none">
+             {prefix && <span className="text-sm font-medium text-gray-600">{prefix}</span>}
+             <div 
+                className="flex items-center border border-gray-200 rounded-lg bg-white h-11 w-40 shadow-sm overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+             >
                 <button
                     type="button"
                     onClick={handleDecrement}
                     disabled={typeof value === 'number' && value <= min}
-                    className="p-2 text-gray-500 hover:text-primary-600 hover:bg-white rounded-md transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+                    className="w-12 h-full flex items-center justify-center text-gray-500 hover:text-primary-600 hover:bg-gray-50 active:bg-gray-100 transition-colors disabled:opacity-30 disabled:hover:bg-transparent border-r border-gray-100"
                 >
-                    <Minus size={16} />
+                    <Minus size={18} />
                 </button>
                 <input
                     type="tel" // Triggers numeric keypad on mobile
@@ -83,21 +150,178 @@ const StepperInput: React.FC<StepperProps> = ({ value, onChange, min = 1, max = 
                     value={value}
                     onChange={handleInputChange}
                     onBlur={handleBlur}
-                    className="w-12 text-center bg-transparent border-none focus:ring-0 text-sm font-semibold text-gray-800 p-0"
+                    className="flex-1 w-0 h-full text-center bg-transparent border-none focus:ring-0 text-lg font-semibold text-gray-900 px-0"
                 />
                 <button
                     type="button"
                     onClick={handleIncrement}
                     disabled={typeof value === 'number' && value >= max}
-                    className="p-2 text-gray-500 hover:text-primary-600 hover:bg-white rounded-md transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+                    className="w-12 h-full flex items-center justify-center text-gray-500 hover:text-primary-600 hover:bg-gray-50 active:bg-gray-100 transition-colors disabled:opacity-30 disabled:hover:bg-transparent border-l border-gray-100"
                 >
-                    <Plus size={16} />
+                    <Plus size={18} />
                 </button>
              </div>
-             {suffix && <span className="text-sm text-gray-600">{suffix}</span>}
+             {suffix && <span className="text-sm font-medium text-gray-600">{suffix}</span>}
         </div>
     );
 };
+
+// --- Custom Mini Calendar Component ---
+interface MiniCalendarProps {
+    value: string;
+    onChange: (dateStr: string) => void;
+    onClose: () => void;
+}
+
+const MiniCalendar: React.FC<MiniCalendarProps> = ({ value, onChange, onClose }) => {
+    // Initialize view based on current value or today
+    const [viewDate, setViewDate] = useState(() => {
+        if (value) {
+            const [y, m, d] = value.split('-').map(Number);
+            return new Date(y, m - 1, d);
+        }
+        return new Date();
+    });
+
+    const monthStart = startOfMonth(viewDate);
+    const monthEnd = endOfMonth(monthStart);
+    const startDate = startOfWeek(monthStart, { locale: zhCN });
+    const endDate = endOfWeek(monthEnd, { locale: zhCN });
+    const days = eachDayOfInterval({ start: startDate, end: endDate });
+
+    const prevMonth = () => setViewDate(subMonths(viewDate, 1));
+    const nextMonth = () => setViewDate(addMonths(viewDate, 1));
+
+    const handleWheel = (e: React.WheelEvent) => {
+        e.stopPropagation(); 
+        if (e.deltaY < 0) prevMonth();
+        if (e.deltaY > 0) nextMonth();
+    };
+
+    // Touch handling for swipe
+    const touchStartX = useRef<number | null>(null);
+    const handleTouchStart = (e: React.TouchEvent) => {
+        touchStartX.current = e.touches[0].clientX;
+    };
+    const handleTouchEnd = (e: React.TouchEvent) => {
+        if (touchStartX.current === null) return;
+        const touchEndX = e.changedTouches[0].clientX;
+        const diff = touchStartX.current - touchEndX;
+
+        if (Math.abs(diff) > 50) { // Threshold for swipe
+            if (diff > 0) nextMonth(); // Swipe Left -> Next
+            else prevMonth(); // Swipe Right -> Prev
+        }
+        touchStartX.current = null;
+    };
+
+    const handleDayClick = (day: Date) => {
+        onChange(format(day, 'yyyy-MM-dd'));
+        onClose();
+    };
+
+    const handleToday = () => {
+        const today = new Date();
+        onChange(format(today, 'yyyy-MM-dd'));
+        onClose();
+    };
+    
+    const handleClear = () => {
+        handleToday();
+    };
+
+    const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+
+    return (
+        <div 
+            className="p-3 w-[320px] select-none"
+            onWheel={handleWheel}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+        >
+            {/* Header */}
+            <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-bold text-gray-800 pl-1">
+                    {format(viewDate, 'yyyy年MM月')}
+                </span>
+                <div className="flex gap-1">
+                    <button type="button" onClick={prevMonth} className="p-1 hover:bg-gray-100 rounded text-gray-500">
+                        <ChevronLeft size={16} />
+                    </button>
+                    <button type="button" onClick={nextMonth} className="p-1 hover:bg-gray-100 rounded text-gray-500">
+                        <ChevronRight size={16} />
+                    </button>
+                </div>
+            </div>
+
+            {/* Weekdays */}
+            <div className="grid grid-cols-7 mb-1 text-center">
+                {weekDays.map(d => (
+                    <div key={d} className="text-[10px] text-gray-400 font-medium">
+                        {d}
+                    </div>
+                ))}
+            </div>
+
+            {/* Days */}
+            <div className="grid grid-cols-7 gap-1">
+                {days.map((day) => {
+                    const dateStr = format(day, 'yyyy-MM-dd');
+                    const isSelected = value === dateStr;
+                    const isCurrentMonth = isSameMonth(day, monthStart);
+                    const isDayToday = isToday(day);
+                    const lunarInfo = getLunarDisplay(day);
+
+                    return (
+                        <button
+                            key={day.toISOString()}
+                            type="button"
+                            onClick={() => handleDayClick(day)}
+                            className={`
+                                h-10 w-full rounded-lg flex flex-col items-center justify-center transition-all mx-auto aspect-square
+                                ${!isCurrentMonth ? 'text-gray-300 opacity-50' : 'text-gray-700'}
+                                ${isSelected 
+                                    ? 'bg-primary-600 text-white shadow-md' 
+                                    : 'hover:bg-gray-100'}
+                                ${isDayToday && !isSelected ? 'text-primary-600 font-bold bg-primary-50' : ''}
+                            `}
+                        >
+                            <span className={`text-sm leading-none mb-0.5 ${isSelected ? 'font-semibold' : ''}`}>
+                                {format(day, 'd')}
+                            </span>
+                            <span className={`text-[9px] scale-90 leading-none ${
+                                isSelected ? 'text-primary-100' : 
+                                (lunarInfo.isJieQi || lunarInfo.isFestival) ? 'text-primary-600 font-medium' : 
+                                'text-gray-400'
+                            }`}>
+                                {lunarInfo.text}
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+
+            {/* Footer Actions */}
+            <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-100">
+                <button 
+                    type="button"
+                    onClick={handleClear}
+                    className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded hover:bg-gray-50"
+                >
+                    回到今天
+                </button>
+                <button 
+                    type="button"
+                    onClick={handleToday}
+                    className="text-xs text-primary-600 font-medium px-2 py-1 rounded hover:bg-primary-50"
+                >
+                    今天
+                </button>
+            </div>
+        </div>
+    );
+};
+
 
 const getTodayDate = () => {
   const date = new Date();
@@ -148,6 +372,10 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
   const categoryDropdownRef = useRef<HTMLDivElement>(null);
   const tagContainerRef = useRef<HTMLDivElement>(null);
 
+  // Custom Date Picker State
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const datePickerRef = useRef<HTMLDivElement>(null);
+
   // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -160,15 +388,18 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
       if (repeatDropdownRef.current && !repeatDropdownRef.current.contains(event.target as Node)) {
           setIsRepeatDropdownOpen(false);
       }
+      if (datePickerRef.current && !datePickerRef.current.contains(event.target as Node)) {
+          setIsDatePickerOpen(false);
+      }
     };
 
-    if (isCategoryDropdownOpen || isTagDropdownOpen || isRepeatDropdownOpen) {
+    if (isCategoryDropdownOpen || isTagDropdownOpen || isRepeatDropdownOpen || isDatePickerOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isCategoryDropdownOpen, isTagDropdownOpen, isRepeatDropdownOpen]);
+  }, [isCategoryDropdownOpen, isTagDropdownOpen, isRepeatDropdownOpen, isDatePickerOpen]);
 
   // Reset or Populate form when opening
   useEffect(() => {
@@ -216,6 +447,7 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
       setIsCategoryDropdownOpen(false);
       setIsTagDropdownOpen(false);
       setIsRepeatDropdownOpen(false);
+      setIsDatePickerOpen(false);
       setTagInput('');
     }
   }, [isOpen, todoToEdit, defaultDate, defaultCategoryId]);
@@ -230,11 +462,9 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
     let finalDate = date || getTodayDate();
 
     // Special Handling for Monthly Repeat Day Change
-    // If user selected "Monthly on Day X", and X is different from the date's day, update date.
     if (repeatType === 'monthly' && typeof repeatMonthlyDay === 'number') {
         const currentD = parseLocalDate(finalDate);
         if (getDate(currentD) !== repeatMonthlyDay) {
-            // Set the day. Note: setDateFns handles month overflow (e.g. Feb 30 -> Mar 2), which is generally acceptable behavior or we'd need complex validation.
             const newDateObj = setDateFns(currentD, repeatMonthlyDay);
             finalDate = format(newDateObj, 'yyyy-MM-dd');
         }
@@ -276,7 +506,6 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
     onClose();
   };
 
-  // ... (Tag Handlers and Category Flattening Logic remain unchanged) ...
   const handleTagInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       setTagInput(e.target.value);
       setIsTagDropdownOpen(true);
@@ -322,10 +551,8 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
     ? categories.find(c => c.id === categoryId)?.name 
     : '无分类';
 
-  // Determine current day number for display label
   const displayMonthDay = typeof repeatMonthlyDay === 'number' ? repeatMonthlyDay : (date ? getDate(parseLocalDate(date)) : new Date().getDate());
 
-  // Handle Date Change -> sync monthly day default
   const handleDateChange = (newDateStr: string) => {
       setDate(newDateStr);
       if (newDateStr) {
@@ -337,7 +564,7 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
       <div 
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50/50 shrink-0">
@@ -353,7 +580,6 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
         </div>
 
         <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar">
-          {/* Title */}
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
               标题
@@ -369,20 +595,35 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            {/* Date */}
-            <div>
+            {/* Custom Date Picker Trigger */}
+            <div className="relative" ref={datePickerRef}>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
                 日期
               </label>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => handleDateChange(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all text-sm"
-                required
-              />
+              <div
+                onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
+                className={`
+                    w-full px-3 py-2 bg-white border rounded-lg flex items-center gap-2 cursor-pointer transition-all text-sm
+                    ${isDatePickerOpen ? 'border-primary-500 ring-2 ring-primary-500/20' : 'border-gray-200 hover:border-gray-300'}
+                `}
+              >
+                  <CalendarIcon size={16} className="text-gray-400" />
+                  <span className={date ? 'text-gray-900' : 'text-gray-500'}>
+                      {date || '选择日期'}
+                  </span>
+              </div>
+              
+              {isDatePickerOpen && (
+                  <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-50 animate-in fade-in zoom-in-95 duration-100 overflow-hidden">
+                      <MiniCalendar 
+                        value={date} 
+                        onChange={handleDateChange} 
+                        onClose={() => setIsDatePickerOpen(false)}
+                      />
+                  </div>
+              )}
             </div>
-             {/* Time */}
+
              <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
                 时间 <span className="text-gray-400 font-normal normal-case">(可选)</span>
@@ -398,7 +639,6 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
             </div>
           </div>
 
-          {/* Repeat Configuration (REFACTORED) */}
           <div className="relative" ref={repeatDropdownRef}>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
                 重复待办
@@ -424,7 +664,6 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
               {isRepeatDropdownOpen && (
                  <div className="absolute top-full left-0 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100 p-2 space-y-1">
                      
-                     {/* No Repeat */}
                      <button
                         type="button"
                         onClick={() => { setRepeatType('none'); setIsRepeatDropdownOpen(false); }}
@@ -433,9 +672,14 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
                          不重复
                      </button>
                      
-                     {/* Daily Option */}
                      <div 
-                        onClick={() => setRepeatType('daily')}
+                        onClick={() => {
+                            if (repeatType === 'daily') {
+                                setIsRepeatDropdownOpen(false);
+                            } else {
+                                setRepeatType('daily');
+                            }
+                        }}
                         className={`rounded-lg px-3 py-2 cursor-pointer transition-colors ${repeatType === 'daily' ? 'bg-primary-50 border border-primary-100' : 'hover:bg-gray-50 border border-transparent'}`}
                      >
                          <div className="flex items-center justify-between">
@@ -457,9 +701,14 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
                          )}
                      </div>
 
-                     {/* Monthly Option */}
                      <div 
-                        onClick={() => setRepeatType('monthly')}
+                        onClick={() => {
+                             if (repeatType === 'monthly') {
+                                setIsRepeatDropdownOpen(false);
+                            } else {
+                                setRepeatType('monthly');
+                            }
+                        }}
                         className={`rounded-lg px-3 py-2 cursor-pointer transition-colors ${repeatType === 'monthly' ? 'bg-primary-50 border border-primary-100' : 'hover:bg-gray-50 border border-transparent'}`}
                      >
                          <div className="flex items-center justify-between">
@@ -484,7 +733,6 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
               )}
           </div>
 
-          {/* Custom Category Select */}
           <div className="relative" ref={categoryDropdownRef}>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
               分类
@@ -512,7 +760,6 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
 
               {isCategoryDropdownOpen && (
                   <div className="absolute top-full left-0 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-50 max-h-60 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-100">
-                      {/* No Category Option */}
                       <div 
                           onClick={() => { setCategoryId(''); setIsCategoryDropdownOpen(false); }}
                           className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer"
@@ -523,10 +770,8 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
                           <span>无分类</span>
                       </div>
                       
-                      {/* Divider */}
                       <div className="h-px bg-gray-100 my-1 mx-2"></div>
 
-                      {/* Category List */}
                       {categoryOptions.length === 0 ? (
                           <div className="px-3 py-4 text-center text-xs text-gray-400">
                               暂无分类
@@ -542,7 +787,6 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
                                 `}
                                 style={{ paddingLeft: `${depth * 20 + 12}px` }}
                             >
-                                {/* Hierarchy Icon Logic */}
                                 <div className="flex items-center justify-center w-4 shrink-0">
                                     <Folder 
                                         size={14} 
@@ -560,7 +804,6 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
               )}
           </div>
           
-          {/* Tags Input */}
           <div className="relative" ref={tagContainerRef}>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
                 标签
@@ -640,7 +883,6 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
               </div>
           </div>
 
-          {/* Priority */}
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
                 优先级
@@ -663,7 +905,6 @@ export const AddTodoModal: React.FC<AddTodoModalProps> = ({
             </div>
           </div>
           
-          {/* Description */}
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
               描述 (可选)

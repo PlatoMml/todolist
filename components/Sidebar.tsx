@@ -115,10 +115,10 @@ const AllTasksNavItem: React.FC<{
                 <span className="truncate font-medium">所有任务</span>
             </div>
             <div className="flex items-center gap-1">
-                 {/* Reverted: opacity-0 on default, hover opacity-100. Removed mobile always-visible logic */}
+                 {/* Reverted: opacity-0 on default, hover opacity-100. HIDDEN ON MOBILE (lg:block). */}
                  <button 
                     onClick={(e) => { e.stopPropagation(); onAddRoot(); }}
-                    className={`p-1 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded transition-opacity ${isReordering ? 'opacity-0 pointer-events-none' : 'opacity-0 group-hover:opacity-100'}`}
+                    className={`hidden lg:block p-1 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded transition-opacity ${isReordering ? 'opacity-0 pointer-events-none' : 'opacity-0 group-hover:opacity-100'}`}
                     title="新建分类"
                 >
                     <Plus size={12} />
@@ -253,8 +253,8 @@ const CategoryNavItem: React.FC<{
         </div>
 
         <div className="flex items-center gap-1">
-            {/* Reverted: Buttons hidden by default, visible on hover only. No mobile overrides. */}
-            <div className={`flex items-center gap-1 transition-opacity mr-1 ${isReordering ? 'opacity-0 pointer-events-none' : 'opacity-0 group-hover:opacity-100'}`}>
+            {/* Reverted: Buttons hidden by default, visible on hover only. HIDDEN ON MOBILE (lg:flex). */}
+            <div className={`hidden lg:flex items-center gap-1 transition-opacity mr-1 ${isReordering ? 'opacity-0 pointer-events-none' : 'opacity-0 group-hover:opacity-100'}`}>
                 <button 
                     onClick={(e) => { e.stopPropagation(); onRename(category.id, category.name); }}
                     className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"

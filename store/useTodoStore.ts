@@ -360,6 +360,7 @@ export const useTodoStore = create<TodoState>()(
           let previousId = sourceId;
           let safetyCounter = 0;
           const MAX_ITERATIONS = 366; 
+          let deletedTodoId: string | null = null;
 
           while (safetyCounter < MAX_ITERATIONS) {
               const currentDateStr = formatDate(currentDateObj);
@@ -381,6 +382,7 @@ export const useTodoStore = create<TodoState>()(
                           deletedAt: Date.now(), 
                           updatedAt: Date.now()
                       };
+                      deletedTodoId = existingTodo.id;
                   }
               } else {
                   const newTodo: Todo = {
@@ -396,6 +398,7 @@ export const useTodoStore = create<TodoState>()(
                   delete newTodo.isVirtual; 
                   newTodos.push(newTodo);
                   previousId = newTodo.id;
+                  if (isTargetDate) deletedTodoId = newTodo.id;
               }
 
               if (isTargetDate) break;
@@ -407,6 +410,32 @@ export const useTodoStore = create<TodoState>()(
               }
               safetyCounter++;
           }
+
+          // Generate next instance to ensure chain continuity even after deletion
+          let nextDateObj = currentDateObj;
+           if (sourceTodo.repeat.type === 'daily') {
+              nextDateObj = addDays(nextDateObj, sourceTodo.repeat.interval);
+          } else if (sourceTodo.repeat.type === 'monthly') {
+              nextDateObj = addMonths(nextDateObj, 1);
+          }
+          const nextDateStr = formatDate(nextDateObj);
+          const exists = newTodos.some(t => t.date === nextDateStr && t.title === sourceTodo.title);
+
+          if (!exists) {
+              const nextPendingTodo: Todo = {
+                  ...sourceTodo,
+                  id: uuidv4(),
+                  date: nextDateStr,
+                  completed: false,
+                  createdAt: Date.now(),
+                  updatedAt: Date.now(),
+                  fromId: previousId, // Link to the just-created (and deleted) one
+                  deletedAt: undefined
+              };
+              delete nextPendingTodo.isVirtual;
+              newTodos.push(nextPendingTodo);
+          }
+
           return { todos: newTodos };
       }),
 
@@ -416,11 +445,47 @@ export const useTodoStore = create<TodoState>()(
         ),
       })),
 
-      moveTodoToTrash: (id) => set((state) => ({
-        todos: state.todos.map(t => 
+      moveTodoToTrash: (id) => set((state) => {
+        let newTodos = state.todos.map(t => 
           t.id === id ? { ...t, deletedAt: Date.now() } : t
-        )
-      })),
+        );
+
+        // If the trashed todo has repeat, we must ensure the NEXT one is generated
+        // so the user doesn't lose the chain by deleting "this instance".
+        const todo = state.todos.find(t => t.id === id);
+        if (todo && todo.repeat) {
+             let nextDateObj = parseLocalDate(todo.date);
+                
+            if (todo.repeat.type === 'daily') {
+                nextDateObj = addDays(nextDateObj, todo.repeat.interval);
+            } else if (todo.repeat.type === 'monthly') {
+                nextDateObj = addMonths(nextDateObj, 1);
+            }
+            
+            const nextDateStr = formatDate(nextDateObj);
+
+            const hasChild = newTodos.some(t => 
+                t.date === nextDateStr && 
+                t.title === todo.title && 
+                (t.fromId === todo.id || !t.fromId)
+            );
+
+            if (!hasChild) {
+                const nextTodo: Todo = {
+                    ...todo,
+                    id: uuidv4(),
+                    date: nextDateStr,
+                    completed: false,
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                    fromId: todo.id,
+                };
+                newTodos.push(nextTodo);
+            }
+        }
+
+        return { todos: newTodos };
+      }),
       
       deleteTodoSeries: (id) => set((state) => {
         const idsToDelete = new Set<string>();

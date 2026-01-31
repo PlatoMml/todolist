@@ -44,6 +44,31 @@
 
 ---
 
+## 📸 截图 (Screenshots)
+
+<div align="center">
+  <h3>桌面端概览</h3>
+  <!-- 请在根目录创建 screenshots 文件夹，并上传名为 desktop-preview.png 的截图 -->
+  <img src="./screenshots/desktop-preview.png" alt="Desktop View" width="800" style="border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);" />
+  
+  <br/><br/>
+
+  <h3>移动端体验</h3>
+  <div style="display: flex; justify-content: center; gap: 20px;">
+    <!-- 请上传 mobile-list.png -->
+    <img src="./screenshots/mobile-list.png" alt="Mobile List" width="300" style="border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);" />
+    <!-- 请上传 mobile-calendar.png -->
+    <img src="./screenshots/mobile-calendar.png" alt="Mobile Calendar" width="300" style="border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);" />
+  </div>
+</div>
+
+> **如何让图片显示？**
+> 1. 在项目根目录新建文件夹 `screenshots`。
+> 2. 将截图重命名为 `desktop-preview.png`, `mobile-list.png`, `mobile-calendar.png`。
+> 3. 上传到文件夹中，GitHub 会自动显示。
+
+---
+
 ## 🛠 技术栈 (Tech Stack)
 
 *   **Core**: React 19, TypeScript
@@ -88,12 +113,6 @@
 ### 方法 B: 开发环境 (Development)
 
 如果你想进行二次开发，建议配合 IDE (如 VS Code) 和 TypeScript 插件以获得最佳的代码提示体验。
-
----
-
-## 📸 截图 (Screenshots)
-
-*(建议在此处上传 2-3 张截图：1张桌面端全览，1张移动端长按菜单，1张日历视图)*
 
 ---
 
